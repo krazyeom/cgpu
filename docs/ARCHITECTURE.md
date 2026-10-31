@@ -271,6 +271,7 @@ cgpu/
 * **바이너리 격리**: 컴파일된 실행 파일(`/CGPUMonitor`, `CGPUMonitor.app/Contents/MacOS/CGPUMonitor`), DMG 디스크 이미지(`*.dmg`), 빌드 캐시(`.clang-cache/`, `.build/`)를 Git 추적에서 제외하여 저장소 비대화 방지.
 * **개인 정보 및 비밀 키 차단**: `.env*`, `*.pem`, `*.key`, `id_rsa*`, `.netrc` 등 민감한 자격 증명 파일이 실수로 스테이징되지 않도록 `.gitignore` 규칙 엄격화.
 * **저작자 표기**: 위젯 UI 하단 및 상단 메뉴바에 저작자 `krazyeom` 링크를 통합하고 MIT 라이선스를 명시.
+* **문서 언어 규격 (English-First Bilingual README)**: Antigravity Agent 엔지니어링 룰에 따라 `README.md` 작성 및 업데이트 시 무조건 영어(English)를 기본 메인 언어로 상단에 완벽하게 작성하고, 하단에 한국어(Korean) 번역본을 반드시 포함하여 글로벌 오픈소스 접근성과 로컬 가독성을 동시에 보장.
 
 ---
 
