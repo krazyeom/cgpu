@@ -340,14 +340,58 @@ iconutil -c icns AppIcon.iconset -o AppIcon.icns
 
 마지막 퍼즐은 배포 파일이었다. 보통 맥 앱을 깃허브에서 받으면 압축 파일(`.zip`)로 풀기보다, 더블클릭했을 때 예쁜 창이 열리면서 "앱을 Applications 폴더로 끌어다 놓으세요" 하는 그 특유의 DMG 설치 창을 만나는 게 훨씬 기분 좋다.
 
-외부 툴(create-dmg 등)을 설치하지 않고, 순수 맥 내장 `hdiutil`과 `osascript`로 원클릭 DMG 빌더(`make_dmg.sh`)를 구현했다:
+외부 툴(create-dmg 등)을 설치하지 않고, 순수 맥 내장 `hdiutil`과 `osascript`로 원클릭 DMG 빌더(`make_dmg.sh`)를 구현했다.
 
-1. **레티나 안내 배경 생성**: `generate_dmg_background.swift`로 다크 테마에 네온 안내 화살표와 드롭 타깃 프레임이 그려진 1200x800(@2x) 배경 이미지를 생성.
-2. **HFS+ 볼륨 마운트**: `hdiutil create`로 임시 디스크 이미지를 만들어 마운트하고 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크를 배치.
-3. **Finder 윈도우 스타일링 (AppleScript)**: 툴바와 상태바를 숨기고, 윈도우 크기를 600x400으로 맞춘 뒤, 배경화면을 깔고 좌측({150, 205})에 앱 아이콘, 우측({450, 205})에 Applications 아이콘을 딱 배치.
-4. **고압축 UDZO 변환**: zlib 9등급으로 압축해 2.2MB짜리 컴팩트한 `CGPUMonitor-v1.1.0.dmg` 완성!
+### 또 터진 버그: 배경 이미지가 왜 이렇게 거대해?
+DMG를 만들어 더블클릭해보니, 뭔가 크게 이상했다. 창은 아담한 600x400인데, 안쪽에 깔린 배경 이미지가 2배로 뻥튀기되어 렌더링되고 있었다. 앱 아이콘과 Applications 폴더는 옹기종기 모여 있는데, 정작 배경의 드롭 타깃 플레이트와 네온 화살표는 저 멀리 창 밖으로 밀려나 있었다.
 
-이제 사용자는 DMG 파일을 열고 아이콘을 오른쪽으로 슥 끌어다 놓기만 하면 설치가 끝난다.
+원인을 파고들어 보니 두 가지 복합적인 문제가 얽혀 있었다:
+1. **Finder는 배경 이미지를 창 크기에 맞춰 줄여주지 않는다**: 웹 브라우저처럼 `background-size: contain` 같은 동작을 기대하면 안 된다. 72 DPI의 1200x800 PNG를 던져주면 Finder는 그 크기 그대로 1200x800 포인트로 인식해서 화면을 클리핑해버린다.
+2. **CoreGraphics와 Finder의 상하 반전 좌표계**:
+   - Finder AppleScript: 창 **좌상단(Top-Left)**이 (0,0), 아래로 갈수록 y 증가.
+   - CoreGraphics: 이미지 **좌하단(Bottom-Left)**이 (0,0), 위로 갈수록 y 증가.
+
+### 해결책: 660x440 통일과 멀티 레졸루션 TIFF
+완벽한 싱크를 위해 캔버스를 660pt x 440pt로 통일하고 고해상도 패키징 파이프라인을 정립했다:
+
+1. **`tiffutil -cathidpicheck`로 레티나 다중 해상도 TIFF 빌드**:
+   `generate_dmg_background.swift`에서 논리 포인트 660x440을 기준으로 1x(`660x440.png`)와 2x(`1320x880.png`) 이미지를 각각 렌더링한 뒤, macOS 기본 유틸리티인 `tiffutil`로 하나로 합쳤다.
+   ```bash
+   /usr/bin/tiffutil -cathidpicheck dmg_background.png dmg_background@2x.png -out dmg_background.tiff
+   ```
+   이렇게 묶인 TIFF를 배경으로 지정하면, 일반 맥에서는 1x를, 레티나 맥에서는 2x 고선명 텍스처를 불러오면서도 두 환경 모두 **정확히 660x440 논리 포인트 크기로 꽉 채워 렌더링**한다.
+
+2. **좌표계 수학적 보정**:
+   창 높이가 $H = 440$pt이므로 $y_{\text{cg}} = 440 - y_{\text{finder}}$ 공식이 성립한다.
+   - Finder 아이콘 위치: 좌측 앱 `{170, 210}`, 우측 Applications `{490, 210}`
+   - 배경 드롭 플레이트 중심: 좌측 `(170, 230)`, 우측 `(490, 230)`
+   - 중앙 네온 화살표: $x = 265$부터 $x = 395$, $y = 230$
+
+```applescript
+tell application "Finder"
+    tell disk "$VOL_NAME"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 140, 860, 580}
+        
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 120
+        set background picture of theViewOptions to file ".background:background.tiff"
+        
+        set position of item "CGPUMonitor.app" of container window to {170, 210}
+        set position of item "Applications" of container window to {490, 210}
+        
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+```
+
+다시 빌드하고 DMG를 열어보니, 마침내 감탄이 나오는 깔끔한 인스톨러 창이 떴다. 120pt 크기의 앱 아이콘이 좌측 글래스 플레이트 한가운데에 쏙 들어가 있고, 우측 Applications 타깃으로 매끄러운 그라데이션 화살표가 한 치의 어긋남 없이 연결되었다.
 
 ---
 

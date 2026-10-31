@@ -21,7 +21,7 @@ if [ ! -f AppIcon.icns ]; then
     iconutil -c icns AppIcon.iconset -o AppIcon.icns
 fi
 
-if [ ! -f dmg_background.png ]; then
+if [ ! -f dmg_background.tiff ]; then
     swift -module-cache-path /tmp/clang-cache generate_dmg_background.swift
 fi
 
@@ -42,6 +42,7 @@ echo "📂 Staging files for DMG..."
 cp -R "CGPUMonitor.app" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
 mkdir -p "$STAGING_DIR/.background"
+cp dmg_background.tiff "$STAGING_DIR/.background/background.tiff"
 cp dmg_background.png "$STAGING_DIR/.background/background.png"
 if [ -f AppIcon.icns ]; then
     cp AppIcon.icns "$STAGING_DIR/.VolumeIcon.icns"
@@ -77,18 +78,18 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set the bounds of container window to {300, 150, 900, 550}
+        set the bounds of container window to {200, 140, 860, 580}
         
         set theViewOptions to the icon view options of container window
         set arrangement of theViewOptions to not arranged
-        set icon size of theViewOptions to 110
-        set background picture of theViewOptions to file ".background:background.png"
+        set icon size of theViewOptions to 120
+        set background picture of theViewOptions to file ".background:background.tiff"
         
-        set position of item "CGPUMonitor.app" of container window to {150, 205}
-        set position of item "Applications" of container window to {450, 205}
+        set position of item "CGPUMonitor.app" of container window to {170, 210}
+        set position of item "Applications" of container window to {490, 210}
         
         update without registering applications
-        delay 1
+        delay 2
         close
     end tell
 end tell

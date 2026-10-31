@@ -80,7 +80,7 @@ cgpu/
 ├── build.sh                                  # 독립 네이티브 빌드 & .app 패키징 스크립트
 ├── make_dmg.sh                               # 배포용 DMG 인스톨러 자동 생성 스크립트
 ├── generate_icon.swift                       # 1024x1024 네이티브 AppIcon 생성기
-├── generate_dmg_background.swift             # DMG 인스톨러용 1200x800 레티나 배경 생성기
+├── generate_dmg_background.swift             # DMG 인스톨러용 660x440 / 1320x880(@2x) 다중 해상도 TIFF 배경 생성기
 ├── AppIcon.icns                              # 멀티 레졸루션 macOS 정규 아이콘 파일
 ├── README.md                                 # 사용자 가이드 및 단축키 안내
 ├── docs/
@@ -262,6 +262,27 @@ cgpu/
   4. **위젯 내 설정 팝오버 (Config Popover)**: 톱니바퀴 클릭 시 하단에 `© 2026 krazyeom` 및 GitHub 바로가기 링크 명시.
   5. **위젯 보통(Standard) 모드 하단 바**: `© 2026 krazyeom · v1.1.0` 표기.
 
+### 4.15. DMG 인스톨러 창 크기 및 레티나 다중 해상도 배경/좌표계 정밀 동기화 (DMG Background Scaling & Finder Coordinate Math)
+* **배경 이미지 확대·왜곡 및 타깃 불일치 원인 분석**:
+  - 초기 DMG 배경 스크립트가 1200x800 해상도의 72 DPI 단일 PNG 파일을 생성하도록 작성되어 있었음.
+  - macOS Finder는 아이콘 뷰에서 배경 이미지를 창 크기에 맞춰 자동 리사이즈(Fit-to-Window)하지 않고 이미지 원본 포인트(Point = Pixel / DPI) 단위로 1:1 타일링/클리핑함.
+  - 그 결과 Finder 창이 600x400으로 열릴 때 1200x800 크기의 거대한 배경 중 좌상단 1/4 영역만 화면에 노출되었고, 우측 플레이트(x=900)와 중앙 화살표(x=480~720)가 창 밖으로 밀려나거나 아이콘({150, 205}, {450, 205})과 전혀 맞지 않는 시각적 괴리가 발생함.
+* **해결 기술: 논리 포인트 통일 및 멀티 레졸루션 TIFF 파이프라인**:
+  1. **논리 포인트 캔버스 표준화 (660pt x 440pt)**:
+     - 인스톨러 윈도우의 크기를 여유 있고 안정적인 660pt x 440pt로 결정 (`bounds: {200, 140, 860, 580}`).
+  2. **CoreGraphics 1x / 2x 비트맵 렌더링 & `tiffutil` 통합**:
+     - `generate_dmg_background.swift`에서 `scale = 1.0` (660x440)과 `scale = 2.0` (1320x880) 비트맵을 각각 렌더링.
+     - macOS 기본 유틸리티인 `/usr/bin/tiffutil -cathidpicheck dmg_background.png dmg_background@2x.png -out dmg_background.tiff`를 실행하여 단일 다중 해상도 TIFF 파일로 병합.
+     - 이를 통해 일반 디스플레이(1x)와 Retina 디스플레이(2x) 모두에서 Finder가 이미지를 정확히 660x440 논리 포인트로 인식하고 2x 고밀도 선명도로 렌더링하도록 보장.
+  3. **Finder 좌표계와 CoreGraphics 좌표계 간 수학적 매핑**:
+     - Finder AppleScript 좌표계는 윈도우 콘텐츠 영역 **좌상단(Top-Left)**이 원점 $(0, 0)$이며, $y$가 아래로 증가.
+     - CoreGraphics 좌표계는 **좌하단(Bottom-Left)**이 원점 $(0, 0)$이며, $y$가 위로 증가.
+     - 창 높이가 $H = 440$pt일 때 상호 변환 공식:
+       $$y_{\text{cg}} = H - y_{\text{finder}} = 440 - y_{\text{finder}}$$
+     - Finder 아이콘 위치를 $y_{\text{finder}} = 210$으로 지정하면, 배경 그래픽의 드롭 타깃 플레이트 중심은 $y_{\text{cg}} = 440 - 210 = 230$에 정확히 일치함.
+     - 좌측 아이콘($x=170$)과 우측 아이콘($x=490$)은 창 중앙($x=330$)을 기준으로 완벽한 좌우 대칭($\Delta x = 160$pt)을 이룸.
+     - 네온 화살표는 $x=265$에서 $x=395$, $y=230$으로 플레이트 사이를 자연스럽게 이어주도록 픽셀 단위로 동기화.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
@@ -318,11 +339,13 @@ touch CGPUMonitor.app
 
 ### 6.2. 배포용 DMG 인스톨러 자동화 (`make_dmg.sh`)
 일반 사용자가 macOS 표준 방식으로 드래그 앤 드롭 설치할 수 있도록 고품질 DMG 인스톨러를 전자동 생성합니다:
-1. `generate_dmg_background.swift`를 통해 1200x800(@2x) 다크 글래스모피즘 안내 배경화면(네온 안내 화살표 포함) 자동 렌더링.
+1. `generate_dmg_background.swift`를 통해 660x440(@1x) 및 1320x880(@2x) 다크 글래스모피즘 안내 배경화면을 렌더링하고, `tiffutil -cathidpicheck`로 레티나 다중 해상도 TIFF(`dmg_background.tiff`) 패키징.
 2. `hdiutil create`로 임시 쓰기 가능 이미지 생성 후 볼륨 마운트.
-3. AppleScript(`osascript`)를 실행하여 Finder 창의 툴바/상태바를 숨기고 아이콘 크기(110pt) 및 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크 좌표({150, 205}, {450, 205})를 픽셀 단위로 정확히 고정.
-4. `SetFile -a C`를 통해 DMG 자체에도 정규 `AppIcon.icns` 볼륨 아이콘 부여.
-5. 최종 `hdiutil convert -format UDZO -imagekey zlib-level=9`로 고압축 배포 파일(`CGPUMonitor-v1.1.0.dmg`) 생성.
+3. AppleScript(`osascript`)를 실행하여 Finder 창의 툴바/상태바를 숨기고 윈도우 크기를 660x440 (`bounds: {200, 140, 860, 580}`)으로 고정한 뒤, 배경화면을 `background.tiff`로 지정.
+4. 아이콘 크기(120pt) 및 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크 좌표를 각각 `{170, 210}`, `{490, 210}`에 정확히 배치하여 배경의 드롭 타깃 플레이트 및 중앙 네온 화살표와 1픽셀 오차 없이 일치시킴.
+5. `update without registering applications`와 `delay 2`로 Finder `.DS_Store` 레이아웃 상태를 디스크에 강제 플러시 후 창 닫기.
+6. `SetFile -a C`를 통해 DMG 볼륨 자체에도 정규 `AppIcon.icns` 볼륨 아이콘 부여.
+7. 최종 `hdiutil convert -format UDZO -imagekey zlib-level=9`로 고압축 배포 파일(`CGPUMonitor-v1.1.0.dmg`) 생성.
 
 ### 6.3. `Info.plist` 필수 키
 * `CFBundleIconFile = AppIcon`: Dock 및 Finder에서 정규 고해상도 앱 아이콘 표시.
