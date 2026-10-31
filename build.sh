@@ -19,6 +19,7 @@ swiftc -parse-as-library \
     -framework SwiftUI \
     -framework IOKit \
     -framework ServiceManagement \
+    -framework IOBluetooth \
     -O \
     -o CGPUMonitor
 

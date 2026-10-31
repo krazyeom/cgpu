@@ -34,6 +34,7 @@ Engineered for both **Apple Silicon (M1/M2/M3/M4)** and **Intel Macs**, CGPU Mon
 5. **Network & Battery Telemetry**:
    - Real-time upload/download throughput per second (MB/s, KB/s, B/s)
    - Battery health, charge percentage (%), power source (AC/Battery), and charging status
+   - **Connected Bluetooth Accessories Battery**: Real-time battery levels for connected **AirPods** (individual Left / Right earbuds and Charging Case), **Apple Pencil**, **Magic Mouse**, **Magic Keyboard**, **Magic Trackpad**, and Bluetooth headphones/controllers.
 6. **Three Window Sizing Modes**:
    - **Standard**: 2-column rich dashboard with model details, core splits, and 20s telemetry history waveforms.
    - **Compact (125pt)**: Space-efficient circular ring gauges for clean glancing.
@@ -112,7 +113,7 @@ Apple Silicon(M1/M2/M3/M4) 및 Intel Mac에서 **CPU, GPU, RAM, SSD, Network, Ba
    - **RAM**: 메모리 사용률(%) 및 실제 점유/총 용량(GB), 앱/와이어드/압축 메모리 상세
    - **SSD**: 주 스토리지(`Macintosh HD`) 점유율(%) 및 잔여 여유 공간(GB)
    - **Network**: 초당 실시간 다운로드/업로드 속도 (MB/s, KB/s, B/s)
-   - **Battery**: 배터리 잔여량(%) 및 충전 어댑터 연결/충전 상태
+   - **Battery**: 본체 배터리 잔여량(%) 및 충전 어댑터 연결/충전 상태, 그리고 연결된 **에어팟(AirPods 좌/우 유닛 및 충전 케이스), 애플펜슬(Apple Pencil), 매직 마우스, 매직 키보드, 트랙패드, 블루투스 헤드셋** 실시간 잔량 통합 모니터링
 2. **3단계 창 크기 모드**:
    - **보통 (Standard)**: 2열 상세 대시보드 + 모델명/코어 분할 + 실시간 추이 그래프
    - **작게 (Compact, 125pt)**: 원형(Ring) 게이지로 깔끔하게 축소

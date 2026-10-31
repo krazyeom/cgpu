@@ -14,7 +14,8 @@ let package = Package(
             name: "CGPUMonitor",
             linkerSettings: [
                 .linkedFramework("IOKit"),
-                .linkedFramework("ServiceManagement")
+                .linkedFramework("ServiceManagement"),
+                .linkedFramework("IOBluetooth")
             ]
         )
     ]

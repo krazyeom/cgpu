@@ -835,6 +835,27 @@ struct BatteryMetricCard: View {
                 .font(.system(size: 9, weight: .medium))
                 .foregroundColor(.secondary.opacity(0.8))
                 .lineLimit(1)
+            
+            if let firstAcc = battery.accessories.first {
+                HStack(spacing: 4) {
+                    Image(systemName: firstAcc.type.icon)
+                        .font(.system(size: 8))
+                        .foregroundColor(.cyan)
+                    Text("\(firstAcc.name): \(firstAcc.shortSummary)")
+                        .font(.system(size: 8, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    if battery.accessories.count > 1 {
+                        Text("+\(battery.accessories.count - 1)")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.cyan)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 0.5)
+                            .background(Capsule().fill(Color.cyan.opacity(0.15)))
+                    }
+                }
+                .padding(.top, 1)
+            }
         }
         .padding(10)
         .background(

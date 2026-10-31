@@ -452,7 +452,55 @@ sync
 
 ---
 
-## 13. 마무리하며
+## 13. 에어팟과 애플펜슬 배터리는 어떻게 가져올까? (비공개 API와 IOKit의 만남)
+
+맥북 본체 배터리만 보여주다 보니, 에어팟을 꽂고 작업할 때마다 "에어팟이랑 애플펜슬 배터리도 같이 뜨면 진짜 편하겠는데?" 하는 생각이 머리를 스쳤다.
+
+그런데 여기서 또 애플 특유의 폐쇄적인 벽에 부딪혔다. macOS 공식 SDK에는 에어팟의 왼쪽, 오른쪽, 케이스 배터리를 조회하는 공개 API(Public API)가 아예 없다. `IOPowerSources`를 아무리 뒤져봐도 맥북 본체 내장 배터리(`InternalBattery-0`)만 덜렁 나올 뿐이었다.
+
+포기할 리가 없다. 오픈소스 커뮤니티와 IOKit, IOBluetooth 바이너리를 뜯어보니 두 갈래의 숨겨진 길이 보였다:
+
+### 1. 매직 마우스·키보드·애플펜슬: IOKit HID 레지스트리
+매직 마우스, 매직 키보드, 트랙패드, 그리고 스타일러스류는 IOKit의 `AppleDeviceManagementHIDEventService` 노드를 순회하면 `BatteryPercent` 프로퍼티를 그대로 뱉어낸다. 0~100 사이의 정수값이 아주 깔끔하게 떨어진다.
+
+### 2. 에어팟: IOBluetooth와 Objective-C 런타임의 마법
+문제는 에어팟이었다. 에어팟은 HID 기기가 아니라 오디오 기기라 IOKit 레지스트리에는 배터리가 잡히지 않았다.
+대신 `IOBluetooth.framework`의 `IOBluetoothDevice` 클래스 내부에 문서화되지 않은 런타임 셀렉터들이 숨어 있었다:
+* `batteryPercentLeft()` (왼쪽 유닛)
+* `batteryPercentRight()` (오른쪽 유닛)
+* `batteryPercentCase()` (충전 케이스)
+* `batteryPercentCombined()` / `batteryPercentSingle()` (일반 헤드셋/단일 유닛)
+
+이 메서드들은 공식 헤더에 없어서 Swift에서 그냥 호출하면 컴파일 에러가 난다. 하지만 Objective-C 런타임 프로토콜을 선언해 바인딩하면 우아하게 엮을 수 있다:
+
+```swift
+@objc protocol BluetoothBatteryDevice {
+    @objc optional func batteryPercentLeft() -> CUnsignedChar
+    @objc optional func batteryPercentRight() -> CUnsignedChar
+    @objc optional func batteryPercentCase() -> CUnsignedChar
+    @objc optional func batteryPercentCombined() -> CUnsignedChar
+    @objc optional func batteryPercentSingle() -> CUnsignedChar
+}
+
+extension IOBluetoothDevice: BluetoothBatteryDevice {}
+```
+
+테스트 코드를 돌려본 순간, 내 맥북에 페어링된 에어팟 프로의 데이터가 터미널에 찍혔다:
+```
+-> [AirPods] 슈퍼울트라 최강 캡숑 짱짱 ... | Left: 91% · Right: 92% · Case: 80%
+```
+짜릿했다. 실시간으로 잔량이 1% 단위까지 완벽하게 잡혔다.
+
+### UI 연동: 마우스 호버로 펼쳐지는 기기별 배터리
+이 데이터를 `BatteryMetrics.accessories` 배열로 패키징하고, 위젯 전반에 녹여냈다:
+* **보통(Standard) 모드**: 배터리 카드 하단에 에어팟 요약(`🎧 L: 91% · R: 92% · C: 80%`)과 추가 기기 카운트 뱃지가 쏙 들어간다.
+* **배터리 호버 팝오버**: 보통 모드든 28pt 미니멀 바든, 배터리 지표에 마우스를 올리면 본체 충전 정보 바로 밑에 `Connected Accessories` 섹션이 열린다. 에어팟은 L/R/Case 각각의 캡슐 뱃지로, 마우스와 펜슬은 미니 배터리 바 게이지로 예쁘게 시각화된다.
+
+이제 에어팟 배터리를 보려고 제어 센터를 열거나 케이스 뚜껑을 열어볼 필요가 없어졌다.
+
+---
+
+## 14. 마무리하며
 
 주말 반나절 동안 Mach 커널 API 수집부터 시작해서, 28pt 미니멀 바, 마우스 호버 센서 팝오버, 다국어 지원, `UserDefaults` 영속화 버그 잡기, 네이티브 AppIcon 렌더링, 그리고 배포용 DMG 패키징까지 한달음에 달려왔다.
 

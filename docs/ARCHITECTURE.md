@@ -301,6 +301,32 @@ cgpu/
   - `GetFileInfo`로 검증한 결과 `attributes: avbstClinmedz` (대문자 `C`) 및 `.VolumeIcon.icns`가 최종 압축 DMG(`UDZO`)까지 완벽하게 보존됨을 확인.
   - 이 최적화는 자매 프로젝트인 `aWord`(`create_dmg.sh`)에도 즉각 적용되어 마운트 시 커스텀 아이콘 표출 정상화.
 
+### 4.17. 연결된 블루투스 및 HID 기기 배터리 모니터링 아키텍처 (AirPods, Apple Pencil, Magic Accessories)
+* **요구사항 및 기술적 도전 과제**:
+  - Mac 본체 배터리뿐 아니라 사용자가 연결하여 사용하는 **AirPods(좌/우 유닛 및 충전 케이스), Apple Pencil, Magic Mouse, Magic Keyboard, Magic Trackpad, 블루투스 헤드폰/게임패드**의 실시간 배터리 잔량을 함께 모니터링.
+  - Apple은 macOS 공식 SDK에서 AirPods의 개별 유닛/케이스 배터리를 가져오는 공식 공개 API를 제공하지 않음.
+* **해결 기술: IOKit HID와 IOBluetooth 런타임 이원화 수집 파이프라인**:
+  1. **HID 주변기기 수집 (IOKit Framework)**:
+     - `IOServiceMatching("AppleDeviceManagementHIDEventService")`로 시스템 IORegistry 순회.
+     - `Product` 및 `BatteryPercent` 프로퍼티를 추출하여 Magic Keyboard, Magic Mouse, Trackpad, Apple Pencil/Stylus의 배터리 잔량(0~100%)을 직접 획득.
+  2. **AirPods 및 오디오/블루투스 기기 수집 (IOBluetooth Framework)**:
+     - `IOBluetoothDevice.pairedDevices()`를 통해 페어링된 기기 목록 확보.
+     - Objective-C 런타임 프로토콜 바인딩(`BluetoothBatteryDevice`)을 통해 AirPods 전용 비공개 셀렉터(`batteryPercentLeft()`, `batteryPercentRight()`, `batteryPercentCase()`, `batteryPercentCombined()`, `batteryPercentSingle()`)를 안전하게 질의:
+       ```swift
+       @objc protocol BluetoothBatteryDevice {
+           @objc optional func batteryPercentLeft() -> CUnsignedChar
+           @objc optional func batteryPercentRight() -> CUnsignedChar
+           @objc optional func batteryPercentCase() -> CUnsignedChar
+           @objc optional func batteryPercentCombined() -> CUnsignedChar
+           @objc optional func batteryPercentSingle() -> CUnsignedChar
+       }
+       ```
+     - 값이 `0xFF`(255)이거나 0인 비활성 상태를 지능적으로 필터링하고 실제 충전/잔량 데이터(0~100)만 추출.
+  3. **UI 통합 연동**:
+     - **보통(Standard) 모드**: 배터리 카드 하단에 대표 연결 기기 아이콘 및 잔량 요약(`🎧 L: 91% · R: 92% · C: 80%`)과 추가 기기 카운트 뱃지 노출.
+     - **상세 팝오버(Detail Popovers)**: 마우스 호버 시 본체 전원 상태 밑에 `Connected Accessories` 섹션이 펼쳐지며, 기기 유형별 SF Symbol 아이콘과 유닛별 캡슐 미니 게이지 바로 시각화.
+     - **완전 한줄(Minimal) 모드**: `BAT` 태그 위에 마우스 호버 시 위 팝오버가 동일하게 연결되어 초슬림 바에서도 한눈에 확인 가능.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
@@ -342,6 +368,7 @@ swiftc -parse-as-library \
     -framework SwiftUI \
     -framework IOKit \
     -framework ServiceManagement \
+    -framework IOBluetooth \
     -O \
     -o CGPUMonitor
 

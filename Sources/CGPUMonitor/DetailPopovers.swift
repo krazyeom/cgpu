@@ -319,10 +319,138 @@ public struct BatteryPopoverView: View {
                 InfoBox(icon: "heart.fill", label: L10n.tr("Battery Condition", "배터리 성능 상태", for: lang), value: L10n.tr("Normal (Optimal)", "정상 (쾌적)", for: lang), color: .pink)
                 InfoBox(icon: "clock.fill", label: L10n.tr("Remaining Time", "남은 시간", for: lang), value: battery.timeRemainingMinutes > 0 ? "\(battery.timeRemainingMinutes / 60)h \(battery.timeRemainingMinutes % 60)m" : L10n.tr("Calculating...", "계산 중...", for: lang), color: .cyan)
             }
+            
+            // Connected Accessories (AirPods, Apple Pencil, Mouse, Keyboard, etc.)
+            if !battery.accessories.isEmpty {
+                Divider().opacity(0.3)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.cyan)
+                        Text(L10n.tr("Connected Accessories", "연결된 기기 배터리", for: lang))
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(battery.accessories.count)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.cyan)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.cyan.opacity(0.15)))
+                    }
+                    
+                    VStack(spacing: 6) {
+                        ForEach(battery.accessories) { acc in
+                            AccessoryRowView(accessory: acc, lang: lang)
+                        }
+                    }
+                }
+            }
         }
         .padding(14)
-        .frame(width: 290)
+        .frame(width: 310)
         .background(Color(red: 0.12, green: 0.12, blue: 0.15))
+    }
+}
+
+// MARK: - Accessory Row View
+struct AccessoryRowView: View {
+    let accessory: AccessoryBattery
+    let lang: AppLanguage
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: accessory.type.icon)
+                .font(.system(size: 12))
+                .foregroundColor(accessory.isConnected ? .cyan : .secondary)
+                .frame(width: 16)
+            
+            Text(accessory.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            if accessory.type == .airpods {
+                HStack(spacing: 5) {
+                    if let l = accessory.leftPercent {
+                        BudIndicator(label: "L", percent: l)
+                    }
+                    if let r = accessory.rightPercent {
+                        BudIndicator(label: "R", percent: r)
+                    }
+                    if let c = accessory.casePercent {
+                        BudIndicator(label: "Case", percent: c)
+                    }
+                }
+            } else if let main = accessory.mainPercent {
+                HStack(spacing: 4) {
+                    Text("\(main)%")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(batteryColor(main))
+                    
+                    MiniBatteryBar(percent: main)
+                        .frame(width: 24, height: 6)
+                }
+            } else {
+                Text(accessory.isConnected ? L10n.tr("Connected", "연결됨", for: lang) : L10n.tr("Ready", "대기 중", for: lang))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+    
+    private func batteryColor(_ p: Int) -> Color {
+        if p > 40 { return .green }
+        if p > 20 { return .yellow }
+        return .red
+    }
+}
+
+struct BudIndicator: View {
+    let label: String
+    let percent: Int
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.secondary)
+            Text("\(percent)%")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundColor(percent > 20 ? .primary : .red)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+    }
+}
+
+struct MiniBatteryBar: View {
+    let percent: Int
+    
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.12))
+                Capsule()
+                    .fill(percent > 40 ? Color.green : (percent > 20 ? Color.yellow : Color.red))
+                    .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent) / 100.0)))
+            }
+        }
     }
 }
 

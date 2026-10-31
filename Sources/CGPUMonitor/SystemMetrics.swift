@@ -2,6 +2,89 @@ import Foundation
 import MachO
 import IOKit
 import IOKit.ps
+import IOBluetooth
+
+// Objective-C runtime protocol for accessing Bluetooth & AirPods battery selectors
+@objc protocol BluetoothBatteryDevice {
+    @objc optional func batteryPercentLeft() -> CUnsignedChar
+    @objc optional func batteryPercentRight() -> CUnsignedChar
+    @objc optional func batteryPercentCase() -> CUnsignedChar
+    @objc optional func batteryPercentCombined() -> CUnsignedChar
+    @objc optional func batteryPercentSingle() -> CUnsignedChar
+}
+
+extension IOBluetoothDevice: BluetoothBatteryDevice {}
+
+public struct AccessoryBattery: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let type: AccessoryType
+    public let isConnected: Bool
+    public let mainPercent: Int?
+    public let leftPercent: Int?
+    public let rightPercent: Int?
+    public let casePercent: Int?
+    
+    public init(
+        id: String,
+        name: String,
+        type: AccessoryType,
+        isConnected: Bool,
+        mainPercent: Int? = nil,
+        leftPercent: Int? = nil,
+        rightPercent: Int? = nil,
+        casePercent: Int? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.isConnected = isConnected
+        self.mainPercent = mainPercent
+        self.leftPercent = leftPercent
+        self.rightPercent = rightPercent
+        self.casePercent = casePercent
+    }
+    
+    public enum AccessoryType: String, Sendable, Equatable {
+        case airpods = "AirPods"
+        case headphones = "Headphones"
+        case mouse = "Magic Mouse"
+        case keyboard = "Magic Keyboard"
+        case trackpad = "Magic Trackpad"
+        case pencil = "Apple Pencil"
+        case controller = "Game Controller"
+        case other = "Accessory"
+        
+        public var icon: String {
+            switch self {
+            case .airpods: return "airpodspro"
+            case .headphones: return "headphones"
+            case .mouse: return "magicmouse"
+            case .keyboard: return "keyboard"
+            case .trackpad: return "computermouse"
+            case .pencil: return "applepencil"
+            case .controller: return "gamecontroller"
+            case .other: return "battery.100"
+            }
+        }
+    }
+    
+    public var shortSummary: String {
+        if type == .airpods {
+            var parts: [String] = []
+            if let l = leftPercent, l > 0 && l <= 100 { parts.append("L: \(l)%") }
+            if let r = rightPercent, r > 0 && r <= 100 { parts.append("R: \(r)%") }
+            if let c = casePercent, c > 0 && c <= 100 { parts.append("C: \(c)%") }
+            if !parts.isEmpty {
+                return parts.joined(separator: " · ")
+            }
+        }
+        if let m = mainPercent, m >= 0 && m <= 100 {
+            return "\(m)%"
+        }
+        return isConnected ? "Connected" : "Ready"
+    }
+}
 
 public struct CPUUsage: Sendable {
     public var total: Double = 0.0
@@ -91,6 +174,11 @@ public struct BatteryMetrics: Sendable {
     public var condition: String = "Normal"
     public var timeRemainingMinutes: Int = -1
     public var powerWatts: Double = 0.0
+    public var accessories: [AccessoryBattery] = []
+    
+    public var hasAccessories: Bool {
+        !accessories.isEmpty
+    }
 }
 
 public struct SystemSensorOverview: Sendable {
@@ -450,9 +538,11 @@ public final class SystemMonitor: ObservableObject {
     
     // MARK: - Battery
     private func readBatteryMetrics() -> BatteryMetrics {
+        let accessories = readAccessoryBatteries()
+        
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else {
-            return BatteryMetrics()
+            return BatteryMetrics(accessories: accessories)
         }
         
         for source in sources {
@@ -469,12 +559,139 @@ public final class SystemMonitor: ObservableObject {
                     isACPowered: isAC,
                     condition: "Normal (Optimal)",
                     timeRemainingMinutes: timeToEmpty,
-                    powerWatts: isCharging ? 28.5 : 0.0
+                    powerWatts: isCharging ? 28.5 : 0.0,
+                    accessories: accessories
                 )
             }
         }
         
-        return BatteryMetrics()
+        return BatteryMetrics(accessories: accessories)
+    }
+    
+    // MARK: - Connected Accessories Battery (AirPods, Apple Pencil, Mouse, Keyboard, etc.)
+    private func readAccessoryBatteries() -> [AccessoryBattery] {
+        var results: [AccessoryBattery] = []
+        var seenIDs = Set<String>()
+        
+        // 1. IOKit HID Services (Apple Magic Keyboard, Mouse, Trackpad, Stylus/Pencil, etc.)
+        var iter: io_iterator_t = 0
+        let matchingDict = IOServiceMatching("AppleDeviceManagementHIDEventService")
+        if IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iter) == KERN_SUCCESS {
+            while case let obj = IOIteratorNext(iter), obj != 0 {
+                var props: Unmanaged<CFMutableDictionary>?
+                if IORegistryEntryCreateCFProperties(obj, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+                   let dict = props?.takeRetainedValue() as? [String: Any] {
+                    let product = dict["Product"] as? String ?? dict["DeviceProduct"] as? String ?? "Accessory"
+                    let battery = dict["BatteryPercent"] as? Int ?? dict["BatteryLevel"] as? Int
+                    let addr = dict["DeviceAddress"] as? String ?? product
+                    
+                    if let batt = battery, batt >= 0 && batt <= 100, !seenIDs.contains(addr) {
+                        seenIDs.insert(addr)
+                        let lower = product.lowercased()
+                        let type: AccessoryBattery.AccessoryType
+                        if lower.contains("pencil") {
+                            type = .pencil
+                        } else if lower.contains("mouse") {
+                            type = .mouse
+                        } else if lower.contains("keyboard") {
+                            type = .keyboard
+                        } else if lower.contains("trackpad") {
+                            type = .trackpad
+                        } else if lower.contains("controller") || lower.contains("dualsense") || lower.contains("xbox") {
+                            type = .controller
+                        } else if lower.contains("airpod") {
+                            type = .airpods
+                        } else if lower.contains("headphone") || lower.contains("beats") {
+                            type = .headphones
+                        } else {
+                            type = .other
+                        }
+                        
+                        results.append(AccessoryBattery(
+                            id: addr,
+                            name: product,
+                            type: type,
+                            isConnected: true,
+                            mainPercent: batt
+                        ))
+                    }
+                }
+                IOObjectRelease(obj)
+            }
+            IOObjectRelease(iter)
+        }
+        
+        // 2. IOBluetooth Devices (AirPods Left/Right/Case, Bluetooth Headphones, Pencil, etc.)
+        if let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] {
+            for d in paired {
+                let name = d.name ?? "Bluetooth Device"
+                let addr = d.addressString ?? name
+                if seenIDs.contains(addr) { continue }
+                
+                let p = d as BluetoothBatteryDevice
+                let left = Int(p.batteryPercentLeft?() ?? 0)
+                let right = Int(p.batteryPercentRight?() ?? 0)
+                let c = Int(p.batteryPercentCase?() ?? 0)
+                let comb = Int(p.batteryPercentCombined?() ?? 0)
+                let single = Int(p.batteryPercentSingle?() ?? 0)
+                let isConn = d.isConnected()
+                
+                let hasAirPodsLevels = (left > 0 && left <= 100) || (right > 0 && right <= 100) || (c > 0 && c <= 100)
+                let hasSingleLevel = (single > 0 && single <= 100) || (comb > 0 && comb <= 100)
+                
+                let lower = name.lowercased()
+                let isAirPodsName = lower.contains("airpod") || lower.contains("pod") || (d.deviceClassMajor == 4 && d.deviceClassMinor == 6 && hasAirPodsLevels)
+                
+                if hasAirPodsLevels || (isConn && isAirPodsName) {
+                    seenIDs.insert(addr)
+                    results.append(AccessoryBattery(
+                        id: addr,
+                        name: name,
+                        type: .airpods,
+                        isConnected: isConn,
+                        leftPercent: (left > 0 && left <= 100) ? left : nil,
+                        rightPercent: (right > 0 && right <= 100) ? right : nil,
+                        casePercent: (c > 0 && c <= 100) ? c : nil
+                    ))
+                } else if hasSingleLevel || isConn {
+                    let type: AccessoryBattery.AccessoryType
+                    if lower.contains("pencil") {
+                        type = .pencil
+                    } else if lower.contains("mouse") {
+                        type = .mouse
+                    } else if lower.contains("keyboard") {
+                        type = .keyboard
+                    } else if lower.contains("trackpad") {
+                        type = .trackpad
+                    } else if lower.contains("controller") || lower.contains("dualsense") || lower.contains("xbox") {
+                        type = .controller
+                    } else if d.deviceClassMajor == 4 || lower.contains("headphone") || lower.contains("beats") || lower.contains("sony") || lower.contains("bose") {
+                        type = .headphones
+                    } else {
+                        type = .other
+                    }
+                    
+                    let battVal = single > 0 && single <= 100 ? single : (comb > 0 && comb <= 100 ? comb : nil)
+                    if isConn || battVal != nil {
+                        seenIDs.insert(addr)
+                        results.append(AccessoryBattery(
+                            id: addr,
+                            name: name,
+                            type: type,
+                            isConnected: isConn,
+                            mainPercent: battVal
+                        ))
+                    }
+                }
+            }
+        }
+        
+        return results.sorted {
+            if $0.isConnected != $1.isConnected {
+                return $0.isConnected && !$1.isConnected
+            }
+            return $0.name < $1.name
+        }
     }
     
     // MARK: - Sensors & Fans
