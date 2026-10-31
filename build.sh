@@ -26,6 +26,10 @@ echo "📦 Packaging CGPUMonitor.app..."
 mkdir -p CGPUMonitor.app/Contents/MacOS CGPUMonitor.app/Contents/Resources
 cp CGPUMonitor CGPUMonitor.app/Contents/MacOS/CGPUMonitor
 chmod +x CGPUMonitor.app/Contents/MacOS/CGPUMonitor
+if [ -f AppIcon.icns ]; then
+    cp AppIcon.icns CGPUMonitor.app/Contents/Resources/AppIcon.icns
+fi
+touch CGPUMonitor.app
 
 echo "✅ Build complete! You can run:"
 echo "   open CGPUMonitor.app"

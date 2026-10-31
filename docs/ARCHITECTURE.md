@@ -78,6 +78,10 @@ flowchart TD
 cgpu/
 ├── Package.swift                             # Swift Package Manager 설정
 ├── build.sh                                  # 독립 네이티브 빌드 & .app 패키징 스크립트
+├── make_dmg.sh                               # 배포용 DMG 인스톨러 자동 생성 스크립트
+├── generate_icon.swift                       # 1024x1024 네이티브 AppIcon 생성기
+├── generate_dmg_background.swift             # DMG 인스톨러용 1200x800 레티나 배경 생성기
+├── AppIcon.icns                              # 멀티 레졸루션 macOS 정규 아이콘 파일
 ├── README.md                                 # 사용자 가이드 및 단축키 안내
 ├── docs/
 │   ├── ARCHITECTURE.md                       # 기술 아키텍처 및 트러블슈팅 문서 (본 문서)
@@ -92,8 +96,9 @@ cgpu/
 │       └── WidgetView.swift                  # 3단계 반응형 위젯 및 투명/불투명 테마 뷰
 └── CGPUMonitor.app/                          # 완성된 독립 macOS 응용 프로그램 번들
     └── Contents/
-        ├── Info.plist                        # LSUIElement=true, Version 1.1.0 설정
-        └── MacOS/CGPUMonitor                 # 컴파일된 64-bit ARM 네이티브 바이너리
+        ├── Info.plist                        # LSUIElement=true, Version 1.1.0, CFBundleIconFile 설정
+        ├── MacOS/CGPUMonitor                 # 컴파일된 64-bit ARM 네이티브 바이너리
+        └── Resources/AppIcon.icns            # 애플리케이션 공식 아이콘 번들 리소스
 ```
 
 ---
@@ -225,13 +230,32 @@ cgpu/
 ### 4.11. 시맨틱 버저닝 (v1.1.0)
 * `AppVersion` 중앙 상수를 정의하여 `CFBundleShortVersionString(1.1.0)`, `CFBundleVersion(2)`, 메뉴바 아이템, 위젯 푸터 크레딧(`v1.1.0 by krazyeom`), 설정 팝오버를 일관되게 동기화.
 
+### 4.12. UserDefaults Suite Domain 및 위치/상태 영속화 버그 원인과 해결
+* **문제점**: 사용자가 위젯을 이동하거나 모드를 변경한 후 터미널에서 `killall CGPUMonitor`로 프로세스를 강제 종료하고 다시 실행했을 때, 이전 위치와 모드가 복구되지 않고 화면 중앙 기본 상태로 초기화되는 현상 발생.
+* **근본 원인 분석**:
+  1. `UserDefaults.standard`는 실행 바이너리의 번들 컨텍스트에 따라 `cfprefsd` 캐시 도메인이 달라지며, 프로세스가 비정상 종료(SIGTERM/SIGKILL)될 때 메모리 캐시가 디스크 plist에 즉각 동기화되지 않고 유실됨.
+  2. `UserDefaults.standard.object(forKey:) as? Int`와 같이 간접 캐스팅 시 `NSNumber` 언래핑 실패로 `nil`이 반환되어 기본값으로 폴백.
+* **해결책**:
+  - 명시적 Suite Domain 지정: `UserDefaults(suiteName: "com.cgpu.monitor") ?? UserDefaults.standard`를 앱 전역 단일 진실 공급원(Single Source of Truth)으로 설정.
+  - 타입 안전한 API 사용: `appDefaults.integer(forKey:)`, `appDefaults.double(forKey:)`, `appDefaults.bool(forKey:)`를 사용하여 언래핑 실패 제거.
+  - 즉시 디스크 플러시: 상태 저장(`saveCurrentState()`) 시 `appDefaults.synchronize()`를 명시 호출하여 `killall` 등 급작스러운 프로세스 종료에도 100% 디스크 동기화 보장.
+  - `applicationWillTerminate(_:)` 델리게이트를 등록하여 정상 종료 시에도 마지막 프레임과 설정을 확실하게 커밋.
+
+### 4.13. CoreGraphics 기반 1024x1024 네이티브 AppIcon 렌더링
+* **설계**: 외부 무거운 그래픽 툴에 의존하지 않고, macOS 내장 `CoreGraphics` & `AppKit` 프레임워크를 활용해 [`generate_icon.swift`](file:///Users/krazyeom/dev/cgpu/generate_icon.swift) 단일 스크립트로 1024px 레티나 스퀘어클(Squircle, 824x824, r:185) 아이콘 자동 렌더링.
+* **디자인 요소**:
+  - 흑요석(Obsidian) 글래스 배경과 다크 알루미늄 챔퍼 하이라이트.
+  - Apple Silicon M 시리즈 프로세서 다이 및 4대 서브시스템 네온 버스 (Cyan: CPU, Purple: GPU, Green: RAM, Orange: SSD).
+  - 중앙 레이저 각인 "CGPU" 및 실시간 텔레메트리 스파크라인 파형.
+  - `sips` 및 `iconutil` 파이프라인을 통해 16x16부터 1024x1024(@2x)까지 전체 정규 해상도를 담은 [`AppIcon.icns`](file:///Users/krazyeom/dev/cgpu/AppIcon.icns) 패키징.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
 
 공개 저장소([https://github.com/krazyeom/cgpu](https://github.com/krazyeom/cgpu))에 안전하게 배포하기 위해 다음과 같은 보안 및 클린 코드 원칙을 적용합니다:
 
-* **바이너리 격리**: 컴파일된 실행 파일(`/CGPUMonitor`, `CGPUMonitor.app/Contents/MacOS/CGPUMonitor`) 및 빌드 캐시(`.clang-cache/`, `.build/`)를 Git 추적에서 제외하여 저장소 비대화 방지.
+* **바이너리 격리**: 컴파일된 실행 파일(`/CGPUMonitor`, `CGPUMonitor.app/Contents/MacOS/CGPUMonitor`), DMG 디스크 이미지(`*.dmg`), 빌드 캐시(`.clang-cache/`, `.build/`)를 Git 추적에서 제외하여 저장소 비대화 방지.
 * **개인 정보 및 비밀 키 차단**: `.env*`, `*.pem`, `*.key`, `id_rsa*`, `.netrc` 등 민감한 자격 증명 파일이 실수로 스테이징되지 않도록 `.gitignore` 규칙 엄격화.
 * **저작자 표기**: 위젯 UI 하단 및 상단 메뉴바에 저작자 `krazyeom` 링크를 통합하고 MIT 라이선스를 명시.
 
@@ -239,7 +263,7 @@ cgpu/
 
 ## 6. 빌드 및 배포 파이프라인
 
-CGPU Monitor는 Xcode GUI 없이도 터미널 환경에서 즉시 1초 만에 완전한 `.app` 번들로 빌드 및 패키징되도록 자동화되어 있습니다.
+CGPU Monitor는 Xcode GUI 없이도 터미널 환경에서 즉시 1초 만에 완전한 `.app` 번들과 배포용 `.dmg` 인스톨러로 빌드 및 패키징되도록 자동화되어 있습니다.
 
 ### 6.1. `build.sh` 스크립트 메커니즘
 ```bash
@@ -272,8 +296,21 @@ swiftc -parse-as-library \
 mkdir -p CGPUMonitor.app/Contents/MacOS CGPUMonitor.app/Contents/Resources
 cp CGPUMonitor CGPUMonitor.app/Contents/MacOS/CGPUMonitor
 chmod +x CGPUMonitor.app/Contents/MacOS/CGPUMonitor
+if [ -f AppIcon.icns ]; then
+    cp AppIcon.icns CGPUMonitor.app/Contents/Resources/AppIcon.icns
+fi
+touch CGPUMonitor.app
 ```
 
-### 6.2. `Info.plist` 필수 키
+### 6.2. 배포용 DMG 인스톨러 자동화 (`make_dmg.sh`)
+일반 사용자가 macOS 표준 방식으로 드래그 앤 드롭 설치할 수 있도록 고품질 DMG 인스톨러를 전자동 생성합니다:
+1. `generate_dmg_background.swift`를 통해 1200x800(@2x) 다크 글래스모피즘 안내 배경화면(네온 안내 화살표 포함) 자동 렌더링.
+2. `hdiutil create`로 임시 쓰기 가능 이미지 생성 후 볼륨 마운트.
+3. AppleScript(`osascript`)를 실행하여 Finder 창의 툴바/상태바를 숨기고 아이콘 크기(110pt) 및 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크 좌표({150, 205}, {450, 205})를 픽셀 단위로 정확히 고정.
+4. `SetFile -a C`를 통해 DMG 자체에도 정규 `AppIcon.icns` 볼륨 아이콘 부여.
+5. 최종 `hdiutil convert -format UDZO -imagekey zlib-level=9`로 고압축 배포 파일(`CGPUMonitor-v1.1.0.dmg`) 생성.
+
+### 6.3. `Info.plist` 필수 키
+* `CFBundleIconFile = AppIcon`: Dock 및 Finder에서 정규 고해상도 앱 아이콘 표시.
 * `LSUIElement = true`: Dock에 거추장스러운 일반 앱 아이콘을 띄우지 않고, 순수 데스크톱 플로팅 위젯 및 메뉴바 상주 도구로 백그라운드 구동.
 * `NSHighResolutionCapable = true`: Retina 및 Liquid Retina XDR 디스플레이에서 1:1 정밀 렌더링 지원.

@@ -272,10 +272,89 @@ Toggle("", isOn: isOn)
 
 ---
 
-## 9. 써보며 느낀 점
+## 9. killall로 껐다 켰는데 왜 위치를 못 잡을까? (UserDefaults의 숨겨진 함정)
 
-Xcode GUI를 켜지 않고 터미널에서 `swiftc`로 1초 만에 빌드해 `.app` 번들로 묶어 쓰니 정말 가볍다. 백그라운드에서 CPU 점유율은 0.1% 미만이고 메모리도 20MB 남짓만 먹는다.
+v1.1.0 태그까지 신나게 찍고 나서 테스트를 해보는데, 덜컥 이상한 현상이 터졌다.
+터미널에서 `killall CGPUMonitor; open CGPUMonitor.app`으로 앱을 재시작했더니, 기껏 상단에 맞춰둔 미니멀 바가 또다시 화면 한가운데에 뚱뚱한 보통 크기로 리셋되어 버리는 것이었다.
 
-무엇보다 화면 상단에 28pt 두께의 반투명 바로 얹어두니, 어떤 작업을 하든 시야를 가리지 않으면서 시스템 상태를 한눈에 훑어볼 수 있어 마음이 편안하다.
+"아까 분명히 `UserDefaults`에 저장 로직 다 넣어뒀는데 대체 왜?"
 
-코드는 모두 정리해서 저장소([https://github.com/krazyeom/cgpu](https://github.com/krazyeom/cgpu))에 올려두었다. 나와 비슷한 고민을 했던 맥 유저라면 직접 빌드해서 써보길 권한다.
+스위프트 REPL을 열고 `UserDefaults.standard`를 찔러보고서야 무릎을 쳤다. 범인은 두 가지였다.
+
+첫째, `UserDefaults.standard.object(forKey:) as? Int`의 타입 캐스팅 실패다. 스위프트 표준 라이브러리에서 `object(forKey:)`가 반환하는 내부 `NSNumber`가 일부 컨텍스트에서 `as? Int`로 부드럽게 넘어오지 않고 뻔뻔하게 `nil`을 뱉고 있었다.
+`as? Int` 대신 `defaults.integer(forKey:)`와 `defaults.double(forKey:)`를 써야 안전했다.
+
+둘째, macOS의 `cfprefsd` 캐싱 정책과 강제 종료(`killall`)의 충돌이었다. `UserDefaults`는 성능을 위해 메모리에 썼다가 비동기로 디스크 plist에 내린다. 사용자가 창을 옮기고 1초도 안 돼서 `killall`을 날리면 프로세스가 시그널을 맞고 즉사하면서 미처 파일에 쓰이지 못한 데이터가 증발해 버린다.
+
+게다가 앱 번들 컨텍스트와 무관하게 언제나 같은 도메인을 바라보도록 명시적인 **Suite Domain (`UserDefaults(suiteName: "com.cgpu.monitor")`)**을 박아두고, 저장할 때마다 `synchronize()`로 디스크에 즉시 도장을 찍었다.
+
+```swift
+private let appDefaults: UserDefaults = {
+    return UserDefaults(suiteName: "com.cgpu.monitor") ?? UserDefaults.standard
+}()
+
+private func saveCurrentState() {
+    guard let window = self.window else { return }
+    let frame = window.frame
+    appDefaults.set(Double(frame.origin.x), forKey: DefaultsKey.windowX)
+    appDefaults.set(Double(frame.origin.y), forKey: DefaultsKey.windowY)
+    appDefaults.set(currentMode.rawValue, forKey: DefaultsKey.widgetMode)
+    appDefaults.set(isOpaque, forKey: DefaultsKey.isOpaque)
+    appDefaults.set(isAlwaysOnTop, forKey: DefaultsKey.isAlwaysOnTop)
+    appDefaults.set(currentLanguage.rawValue, forKey: DefaultsKey.language)
+    currentConfig.save()
+    appDefaults.synchronize() // 강제 종료 대비 즉시 플러시
+}
+```
+
+여기에 정상 종료 상황까지 대비해 `applicationWillTerminate` 델리게이트까지 걸어두니, 이제 아무리 사정없이 `killall`을 날려도 살아날 땐 원래 있던 자리와 쓰던 모드로 1픽셀 오차 없이 딱 복원된다.
+
+---
+
+## 10. 포토샵 없이 코드로 깎아 만든 1024px 네이티브 AppIcon
+
+앱이 기능적으로 완성되자, Dock과 Finder에서 기본 흰색 도화지 아이콘으로 뜨는 게 영 눈에 밟혔다. 디자이너도 없고 무거운 포토샵이나 피그마를 켜기도 귀찮아서, 맥에 내장된 `CoreGraphics`와 `AppKit`으로 직접 아이콘을 코딩하기로 했다.
+
+`generate_icon.swift`라는 100줄짜리 스크립트를 짜서 1024x1024 비트맵 캔버스에 직접 벡터를 그렸다:
+* macOS 정규 규격인 824x824 크기의 스퀘어클(Squircle, r:185) 외곽선과 흑요석 다크 글래스 그라데이션.
+* 중앙에 애플 실리콘 칩 패키지와 4개 서브시스템(CPU: 청록, GPU: 보라, RAM: 초록, SSD: 주황)의 네온 버스 라인.
+* 다이 한가운데에 레이저 각인된 "CGPU" 타이포와 실시간 텔레메트리 파형.
+
+```bash
+# 1. 1024px 마스터 PNG 생성
+swift generate_icon.swift
+
+# 2. sips로 16~1024px 레티나 아이콘셋 일괄 리사이즈
+sips -z 16 16 AppIcon_1024.png --out AppIcon.iconset/icon_16x16.png
+# ... (32, 64, 128, 256, 512, 1024 생성) ...
+
+# 3. macOS 공식 icns 컴파일
+iconutil -c icns AppIcon.iconset -o AppIcon.icns
+```
+
+터미널 엔터 한 번 치자 680KB짜리 정규 `AppIcon.icns`가 1초 만에 툭 떨어졌다. `Info.plist`에 연결해 앱을 빌드하니, 상단 메뉴바와 독에 매끄러운 글래스 실리콘 칩 아이콘이 선명하게 떠오른다.
+
+---
+
+## 11. 맥북 감성 듬뿍 담은 배포용 DMG 인스톨러 자동화
+
+마지막 퍼즐은 배포 파일이었다. 보통 맥 앱을 깃허브에서 받으면 압축 파일(`.zip`)로 풀기보다, 더블클릭했을 때 예쁜 창이 열리면서 "앱을 Applications 폴더로 끌어다 놓으세요" 하는 그 특유의 DMG 설치 창을 만나는 게 훨씬 기분 좋다.
+
+외부 툴(create-dmg 등)을 설치하지 않고, 순수 맥 내장 `hdiutil`과 `osascript`로 원클릭 DMG 빌더(`make_dmg.sh`)를 구현했다:
+
+1. **레티나 안내 배경 생성**: `generate_dmg_background.swift`로 다크 테마에 네온 안내 화살표와 드롭 타깃 프레임이 그려진 1200x800(@2x) 배경 이미지를 생성.
+2. **HFS+ 볼륨 마운트**: `hdiutil create`로 임시 디스크 이미지를 만들어 마운트하고 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크를 배치.
+3. **Finder 윈도우 스타일링 (AppleScript)**: 툴바와 상태바를 숨기고, 윈도우 크기를 600x400으로 맞춘 뒤, 배경화면을 깔고 좌측({150, 205})에 앱 아이콘, 우측({450, 205})에 Applications 아이콘을 딱 배치.
+4. **고압축 UDZO 변환**: zlib 9등급으로 압축해 2.2MB짜리 컴팩트한 `CGPUMonitor-v1.1.0.dmg` 완성!
+
+이제 사용자는 DMG 파일을 열고 아이콘을 오른쪽으로 슥 끌어다 놓기만 하면 설치가 끝난다.
+
+---
+
+## 12. 마무리하며
+
+주말 반나절 동안 Mach 커널 API 수집부터 시작해서, 28pt 미니멀 바, 마우스 호버 센서 팝오버, 다국어 지원, `UserDefaults` 영속화 버그 잡기, 네이티브 AppIcon 렌더링, 그리고 배포용 DMG 패키징까지 한달음에 달려왔다.
+
+터미널에서 가볍게 빌드되고, 맥북 화면 상단에 얇은 글래스 타이틀바처럼 붙어서 배터리와 리소스를 한눈에 보여주는 나만의 위젯이 생기니 맥을 켤 때마다 뿌듯하다.
+
+빌드 스크립트와 완성된 DMG는 깃허브 저장소([https://github.com/krazyeom/cgpu](https://github.com/krazyeom/cgpu))에 모두 공개해 두었다. 직접 빌드해서 써보고 싶은 분들은 저장소를 들러보시길!

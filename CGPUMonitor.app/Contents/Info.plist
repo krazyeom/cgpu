@@ -6,6 +6,10 @@
     <string>ko</string>
     <key>CFBundleExecutable</key>
     <string>CGPUMonitor</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.cgpu.monitor</string>
     <key>CFBundleInfoDictionaryVersion</key>

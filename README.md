@@ -71,11 +71,15 @@ Apple Silicon 및 Intel Mac에서 **CPU, GPU, RAM, SSD, Network, Battery** 상�
 ## 빌드 및 실행
 
 ```bash
-# 빌드
+# 1. 앱 빌드
 ./build.sh
 
-# 실행
+# 2. 실행
 open CGPUMonitor.app
+
+# 3. 배포용 DMG 인스톨러 생성 (드래그 앤 드롭 설치 지원)
+./make_dmg.sh
+# -> CGPUMonitor-v1.1.0.dmg 생성 완료!
 ```
 
 ---

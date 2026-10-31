@@ -76,9 +76,12 @@ public struct MetricConfig: Codable, Equatable, Sendable {
     
     // UserDefaults Serialization
     private static let key = "cgpu_metric_config_v1"
+    private static var appDefaults: UserDefaults {
+        UserDefaults(suiteName: "com.cgpu.monitor") ?? UserDefaults.standard
+    }
     
     public static func load() -> MetricConfig {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard let data = appDefaults.data(forKey: key),
               let config = try? JSONDecoder().decode(MetricConfig.self, from: data) else {
             return MetricConfig()
         }
@@ -91,7 +94,8 @@ public struct MetricConfig: Codable, Equatable, Sendable {
     
     public func save() {
         if let data = try? JSONEncoder().encode(self) {
-            UserDefaults.standard.set(data, forKey: MetricConfig.key)
+            MetricConfig.appDefaults.set(data, forKey: MetricConfig.key)
+            MetricConfig.appDefaults.synchronize()
         }
     }
     

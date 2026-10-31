@@ -11,6 +11,10 @@ private enum DefaultsKey {
     static let language = "cgpu_language"
 }
 
+private let appDefaults: UserDefaults = {
+    return UserDefaults(suiteName: "com.cgpu.monitor") ?? UserDefaults.standard
+}()
+
 // 화면 최상단(메뉴바 바로 아래)까지 걸림 없이 자유롭게 이동할 수 있는 전용 패널
 final class WidgetPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -59,19 +63,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
+    func applicationWillTerminate(_ notification: Notification) {
+        saveCurrentState()
+    }
+    
     private func loadSavedState() {
         self.currentConfig = MetricConfig.load()
-        if let savedModeRaw = UserDefaults.standard.object(forKey: DefaultsKey.widgetMode) as? Int,
-           let savedMode = WidgetMode(rawValue: savedModeRaw) {
-            self.currentMode = savedMode
+        if appDefaults.object(forKey: DefaultsKey.widgetMode) != nil {
+            let savedModeRaw = appDefaults.integer(forKey: DefaultsKey.widgetMode)
+            if let savedMode = WidgetMode(rawValue: savedModeRaw) {
+                self.currentMode = savedMode
+            }
         }
-        if let savedOpaque = UserDefaults.standard.object(forKey: DefaultsKey.isOpaque) as? Bool {
-            self.isOpaque = savedOpaque
+        if appDefaults.object(forKey: DefaultsKey.isOpaque) != nil {
+            self.isOpaque = appDefaults.bool(forKey: DefaultsKey.isOpaque)
         }
-        if let savedPin = UserDefaults.standard.object(forKey: DefaultsKey.isAlwaysOnTop) as? Bool {
-            self.isAlwaysOnTop = savedPin
+        if appDefaults.object(forKey: DefaultsKey.isAlwaysOnTop) != nil {
+            self.isAlwaysOnTop = appDefaults.bool(forKey: DefaultsKey.isAlwaysOnTop)
         }
-        if let savedLangRaw = UserDefaults.standard.string(forKey: DefaultsKey.language),
+        if let savedLangRaw = appDefaults.string(forKey: DefaultsKey.language),
            let savedLang = AppLanguage(rawValue: savedLangRaw) {
             self.currentLanguage = savedLang
         }
@@ -80,13 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func saveCurrentState() {
         guard let window = self.window else { return }
         let frame = window.frame
-        UserDefaults.standard.set(Double(frame.origin.x), forKey: DefaultsKey.windowX)
-        UserDefaults.standard.set(Double(frame.origin.y), forKey: DefaultsKey.windowY)
-        UserDefaults.standard.set(currentMode.rawValue, forKey: DefaultsKey.widgetMode)
-        UserDefaults.standard.set(isOpaque, forKey: DefaultsKey.isOpaque)
-        UserDefaults.standard.set(isAlwaysOnTop, forKey: DefaultsKey.isAlwaysOnTop)
-        UserDefaults.standard.set(currentLanguage.rawValue, forKey: DefaultsKey.language)
+        appDefaults.set(Double(frame.origin.x), forKey: DefaultsKey.windowX)
+        appDefaults.set(Double(frame.origin.y), forKey: DefaultsKey.windowY)
+        appDefaults.set(currentMode.rawValue, forKey: DefaultsKey.widgetMode)
+        appDefaults.set(isOpaque, forKey: DefaultsKey.isOpaque)
+        appDefaults.set(isAlwaysOnTop, forKey: DefaultsKey.isAlwaysOnTop)
+        appDefaults.set(currentLanguage.rawValue, forKey: DefaultsKey.language)
         currentConfig.save()
+        appDefaults.synchronize()
     }
     
     // NSWindowDelegate: 드래그 이동 시 위치 자동 기억
@@ -101,8 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var initialFrame: NSRect
         
         // 이전 위치 복원
-        if let savedX = UserDefaults.standard.object(forKey: DefaultsKey.windowX) as? Double,
-           let savedY = UserDefaults.standard.object(forKey: DefaultsKey.windowY) as? Double {
+        if appDefaults.object(forKey: DefaultsKey.windowX) != nil &&
+           appDefaults.object(forKey: DefaultsKey.windowY) != nil {
+            let savedX = appDefaults.double(forKey: DefaultsKey.windowX)
+            let savedY = appDefaults.double(forKey: DefaultsKey.windowY)
             let candidate = NSRect(x: savedX, y: savedY, width: initialSize.width, height: initialSize.height)
             
             // 모니터 해상도/연결 변경 시 화면 내 가시성 검증
@@ -119,14 +132,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let screen = NSScreen.main ?? NSScreen.screens.first!
                 let visibleFrame = screen.visibleFrame
                 let x = visibleFrame.midX - (initialSize.width / 2)
-                let y = visibleFrame.midY + 40
+                let y = visibleFrame.maxY - initialSize.height
                 initialFrame = NSRect(x: x, y: y, width: initialSize.width, height: initialSize.height)
             }
         } else {
             let screen = NSScreen.main ?? NSScreen.screens.first!
             let visibleFrame = screen.visibleFrame
             let x = visibleFrame.midX - (initialSize.width / 2)
-            let y = visibleFrame.midY + 40
+            let y = visibleFrame.maxY - initialSize.height
             initialFrame = NSRect(x: x, y: y, width: initialSize.width, height: initialSize.height)
         }
         

@@ -3,6 +3,10 @@
 /CGPUMonitor.app/Contents/MacOS/CGPUMonitor
 *.o
 *.dSYM/
+*.dmg
+*.iconset/
+dmg_temp*/
+AppIcon_1024.png
 
 # Build artifacts & package caches
 /.build/
