@@ -250,14 +250,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let width = max(280, CGFloat(80 + cfg.enabledCount * 55))
             return NSSize(width: width, height: 125)
         case .minimal:
-            var width: CGFloat = 240
-            if cfg.showCPU { width += 88 }
-            if cfg.showGPU { width += 88 }
-            if cfg.showRAM { width += 88 }
-            if cfg.showDisk { width += 88 }
-            if cfg.showNetwork { width += 112 }
-            if cfg.showBattery { width += 88 }
-            return NSSize(width: max(360, width), height: 28)
+            var width: CGFloat = 160
+            if cfg.showCPU { width += 75 }
+            if cfg.showGPU { width += 75 }
+            if cfg.showRAM { width += 75 }
+            if cfg.showDisk { width += 75 }
+            if cfg.showNetwork { width += 94 }
+            if cfg.showBattery { width += 73 }
+            return NSSize(width: max(320, width), height: 28)
         }
     }
     
@@ -403,6 +403,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
+        // 정보 (About CGPU Monitor)
+        let aboutItem = NSMenuItem(title: L10n.tr("About CGPU Monitor", "CGPU Monitor 정보", for: lang), action: #selector(showAboutPanel), keyEquivalent: "")
+        aboutItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About")
+        menu.addItem(aboutItem)
+        
         // 개발자 정보 (Author: krazyeom & Version)
         let authorItem = NSMenuItem(title: "\(AppVersion.fullDisplay) (by krazyeom)", action: #selector(openAuthorGithub), keyEquivalent: "")
         authorItem.image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: "Author")
@@ -412,6 +417,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(NSMenuItem(title: L10n.tr("Quit", "종료", for: lang), action: #selector(quitApp), keyEquivalent: "q"))
         
         statusItem.menu = menu
+    }
+    
+    @objc private func showAboutPanel() {
+        let options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: "CGPU Monitor",
+            .applicationVersion: "Version \(AppVersion.version) (Build \(AppVersion.build))",
+            .version: AppVersion.version,
+            .credits: NSAttributedString(
+                string: "Developed by krazyeom\nGitHub: https://github.com/krazyeom/cgpu\nLicensed under MIT License"
+            ),
+            NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): "Copyright © 2026 krazyeom. All rights reserved."
+        ]
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     @objc private func toggleMetricCPU() { var c = currentConfig; c.toggle(.cpu); updateConfig(c) }

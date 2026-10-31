@@ -242,9 +242,36 @@ public struct ConfigPopoverView: View {
                 }
                 .buttonStyle(.plain)
             }
+            
+            Divider()
+                .opacity(0.3)
+            
+            // Copyright & Author Information
+            HStack {
+                Text("© 2026 krazyeom")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: {
+                    if let url = URL(string: "https://github.com/krazyeom/cgpu") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "link")
+                            .font(.system(size: 8))
+                        Text("GitHub")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .foregroundColor(.cyan)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(12)
-        .frame(width: 220)
+        .frame(width: 230)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(red: 0.12, green: 0.12, blue: 0.14).opacity(0.96))

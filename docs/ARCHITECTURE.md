@@ -249,6 +249,17 @@ cgpu/
   - 중앙 레이저 각인 "CGPU" 및 실시간 텔레메트리 스파크라인 파형.
   - `sips` 및 `iconutil` 파이프라인을 통해 16x16부터 1024x1024(@2x)까지 전체 정규 해상도를 담은 [`AppIcon.icns`](file:///Users/krazyeom/dev/cgpu/AppIcon.icns) 패키징.
 
+### 4.14. 최소 모드 가로폭 정밀 다이어트 & 저작권(Copyright) 노출 표준화
+* **미니멀 모드 폭 최적화**:
+  - 기존 792pt는 텍스트 잘림은 해결했으나 화면의 절반 가까이를 차지하여 부담스럽다는 피드백 반영.
+  - 태그 패딩(`4.5pt`), 폰트(`9.5pt`), 요소 간격(`2.5~4pt`)을 정밀하게 다이어트하여 6개 전체 지표 활성화 시 폭을 **627pt**로 약 **165pt(21%) 대폭 축소**.
+  - `.fixedSize(horizontal: true, vertical: false)`를 완벽 유지하여 어떤 경우에도 `C..`, `G..` 글자 잘림 없는 무결점 레이아웃 완성.
+* **개발자 저작권(Copyright) 노출 4단계 표준화**:
+  1. **macOS 공식 정보 패널 (About Panel)**: 상단 메뉴바의 `About CGPU Monitor (정보)` 클릭 시 `NSApp.orderFrontStandardAboutPanel`을 호출하여 앱 아이콘, 버전, 빌드 번호, `Copyright © 2026 krazyeom. All rights reserved.` 및 라이선스 정보 팝업.
+  2. **Info.plist 시스템 메타데이터**: `NSHumanReadableCopyright` 정규 번들 키 등록.
+  3. **위젯 내 설정 팝오버 (Config Popover)**: 톱니바퀴 클릭 시 하단에 `© 2026 krazyeom` 및 GitHub 바로가기 링크 명시.
+  4. **위젯 보통(Standard) 모드 하단 바**: `© 2026 krazyeom · v1.1.0` 표기.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
