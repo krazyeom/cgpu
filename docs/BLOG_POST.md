@@ -185,10 +185,97 @@ id_rsa*
 
 ---
 
-## 6. 써보며 느낀 점
+## 6. 글자가 "C..", "G.."로 잘리는 굴욕: 28pt 미니멀 바의 한계와 가변 폭 설계
+
+네트워크 속도와 배터리 지표까지 야심 차게 얹고 나서 흡족해하고 있었는데, 28pt 한 줄 모드로 전환하자마자 말문이 턱 막혔다.
+
+`C.. 12%  G.. 5%  R.. 48%  S.. 65%  N.. 1.2 MB/s  B.. 100%`
+
+예상했던 깔끔한 태그 대신, SwiftUI 레이아웃 엔진이 좁아터진 580pt 폭 안에서 텍스트를 마구 쥐어짜며 라벨 끝을 얄밉게 말줄임표(...)로 날려버린 것이다.
+
+원인은 명확했다.
+* 태그 6개 × 약 85~110pt = 약 530pt
+* 좌측 타이틀 로고 + 우측 언어/설정/투명도/모드/핀/닫기 버튼들 = 약 180pt
+* 여기에 패딩과 간격까지 더하면 아무리 쥐어짜도 750pt 이상이 필요했다. 580pt 고정 폭으로는 물리적으로 들어갈 수가 없었다.
+
+두 가지 조치를 취했다.
+첫 번째로, 텍스트가 어떤 상황에서도 찌그러지거나 잘리지 않도록 강제 제약을 걸었다.
+
+```swift
+Text(label)
+    .font(.system(size: 10, weight: .bold))
+    .foregroundColor(color)
+    .lineLimit(1)
+    .fixedSize(horizontal: true, vertical: false)
+
+Text(valueString)
+    .font(.system(size: 10, weight: .bold, design: .monospaced))
+    .foregroundColor(.primary)
+    .lineLimit(1)
+    .fixedSize(horizontal: true, vertical: false)
+```
+
+`.fixedSize(horizontal: true, vertical: false)`를 먹이자마자 라벨이 본래 길이를 당당하게 되찾았다.
+
+두 번째로, 창 폭을 무식하게 800pt로 고정하는 대신 **활성화된 지표 수에 따라 유연하게 늘고 주는 가변 폭 계산식**을 넣었다.
+
+```swift
+private var minimalWidth: CGFloat {
+    var width: CGFloat = 240 // 타이틀, 여백, 우측 컨트롤 버튼 6개 기준선
+    if config.showCPU { width += 88 }
+    if config.showGPU { width += 88 }
+    if config.showRAM { width += 88 }
+    if config.showDisk { width += 88 }
+    if config.showNetwork { width += 112 } // MB/s 단위를 위한 넉넉한 공간
+    if config.showBattery { width += 88 }
+    return max(360, width)
+}
+```
+
+이제 6개 항목을 전부 켜면 792pt로 시원하게 열리고, 텍스트가 잘리는 일은 영원히 안녕이다.
+
+---
+
+## 7. 내가 보고 싶은 것만 골라 담기: Config 시스템과 팝오버
+
+"나는 맥 스튜디오라 배터리 항목이 필요 없는데?"
+"나는 CPU랑 GPU만 딱 두 개 띄워두고 싶은데?"
+
+이런 요구는 너무나 자연스럽다. 사용자가 직접 원하는 지표를 빼고 넣을 수 있는 설정(Config) 시스템을 만들었다.
+
+`MetricConfig` 구조체를 파고, `Codable`로 묶어 `UserDefaults`에 직렬화했다. 실수로 모든 지표를 다 꺼버려서 창이 텅 비는 사태를 막으려고 `canDisable` 방어 로직(최소 1개 지표 필수)도 챙겼다.
+
+그리고 위젯 헤더와 미니멀 바에 조그마한 톱니바퀴(⚙️) 아이콘을 달았다. 이걸 누르면 작고 예쁜 설정 팝오버가 슥 열린다.
+
+```swift
+Toggle("", isOn: isOn)
+    .labelsHidden()
+    .toggleStyle(SwitchToggleStyle(tint: metric.color()))
+    .scaleEffect(0.7)
+    .disabled(isOn.wrappedValue && !config.canDisable(metric: metric))
+```
+
+상단 메뉴바의 `Displayed Metrics` 메뉴와도 양방향으로 연동시켰다. 메뉴바에서 체크를 끄든, 위젯 팝오버에서 스위치를 끄든, 위젯 창이 0.2초 Ease-In-Out 애니메이션과 함께 지표 개수에 맞춰 스르륵 줄어들거나 늘어난다. 이 손맛이 제법 쏠쏠하다.
+
+---
+
+## 8. v1.1.0 버저닝과 태그 릴리즈
+
+단순한 개인 토이 프로젝트로 시작했지만 기능이 제법 어엿해졌다. 이제 체계적인 시맨틱 버저닝을 도입하기로 했다.
+
+* 버전 상수: `AppVersion.version = "1.1.0"`, `build = "2"`
+* `Info.plist`의 `CFBundleShortVersionString`과 `CFBundleVersion` 동기화
+* 위젯 하단 크레딧: `v1.1.0 by krazyeom`
+* 상단 메뉴바: `CGPU Monitor v1.1.0 (Build 2) (by krazyeom)`
+
+깃 커밋을 남기고 `git tag -a v1.1.0`으로 첫 마이너 버전 태그를 깔끔하게 발행했다.
+
+---
+
+## 9. 써보며 느낀 점
 
 Xcode GUI를 켜지 않고 터미널에서 `swiftc`로 1초 만에 빌드해 `.app` 번들로 묶어 쓰니 정말 가볍다. 백그라운드에서 CPU 점유율은 0.1% 미만이고 메모리도 20MB 남짓만 먹는다.
 
 무엇보다 화면 상단에 28pt 두께의 반투명 바로 얹어두니, 어떤 작업을 하든 시야를 가리지 않으면서 시스템 상태를 한눈에 훑어볼 수 있어 마음이 편안하다.
 
-코드는 모두 정리해서 저장소에 올려두었다. 나와 비슷한 고민을 했던 맥 유저라면 직접 빌드해서 써보길 권한다.
+코드는 모두 정리해서 저장소([https://github.com/krazyeom/cgpu](https://github.com/krazyeom/cgpu))에 올려두었다. 나와 비슷한 고민을 했던 맥 유저라면 직접 빌드해서 써보길 권한다.

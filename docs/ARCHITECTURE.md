@@ -80,17 +80,19 @@ cgpu/
 ├── build.sh                                  # 독립 네이티브 빌드 & .app 패키징 스크립트
 ├── README.md                                 # 사용자 가이드 및 단축키 안내
 ├── docs/
-│   └── ARCHITECTURE.md                       # 기술 아키텍처 및 트러블슈팅 문서 (본 문서)
+│   ├── ARCHITECTURE.md                       # 기술 아키텍처 및 트러블슈팅 문서 (본 문서)
+│   └── BLOG_POST.md                          # 개발 블로그 포스트 (im-not-ai 스타일)
 ├── Sources/
 │   └── CGPUMonitor/
 │       ├── main.swift                        # AppKit 진입점, WidgetPanel, 메뉴바, 단축키, 창 제어
+│       ├── AppConfig.swift                   # 시맨틱 버저닝(v1.1.0), 지표 On/Off 설정 및 설정 팝오버
 │       ├── Localization.swift                # EN/KO 다국어 지원 엔진 (영문 기본값)
 │       ├── SystemMetrics.swift               # Mach 커널, IOKit, Sysctl 기반 실시간 지표 수집기
 │       ├── DetailPopovers.swift              # 마우스 호버(Hover) 시 나타나는 상세 센서 팝오버 UI
 │       └── WidgetView.swift                  # 3단계 반응형 위젯 및 투명/불투명 테마 뷰
 └── CGPUMonitor.app/                          # 완성된 독립 macOS 응용 프로그램 번들
     └── Contents/
-        ├── Info.plist                        # LSUIElement=true (Dock 숨김 위젯 설정)
+        ├── Info.plist                        # LSUIElement=true, Version 1.1.0 설정
         └── MacOS/CGPUMonitor                 # 컴파일된 64-bit ARM 네이티브 바이너리
 ```
 
@@ -205,6 +207,24 @@ cgpu/
   - 윈도우 크기 모드(`widgetMode`), 불투명도(`isOpaque`), 핀 고정(`isAlwaysOnTop`), 선택 언어(`language`) 또한 상태 변경 즉시 키-값 쌍으로 동기화.
   - **멀티 모니터 안전장치 (Ghost Window 방지)**: 외장 모니터를 연결 해제하거나 해상도가 변경되었을 때 이전 좌표가 현재 어떤 화면에도 보이지 않는 좌표일 수 있으므로, `NSScreen.screens`의 `visibleFrame`과의 교집합(`intersects`)을 사전 검증하여 가시 영역 밖일 경우 안전하게 메인 화면 중앙 상단으로 폴백.
 
+### 4.9. 메트릭 맞춤 구성(Config) 시스템 및 실시간 크기 적응
+* **설계 목표**: 모든 사용자가 6개 지표를 전부 필요로 하지는 않음. 사용자가 CPU, GPU, RAM, SSD, Network, Battery 중 원하는 지표만 선택적으로 켜고 끌 수 있어야 함.
+* **아키텍처**:
+  - `MetricConfig` 구조체를 도입하고 `Codable` 직렬화를 통해 `UserDefaults`에 영속화.
+  - 최소 1개 이상의 지표가 반드시 켜져 있도록 방어 로직(`canDisable(metric:) -> Bool`) 적용.
+  - 위젯 헤더의 **설정(⚙️) 버튼**을 통해 글래스모피즘 `ConfigPopoverView`를 제공하며, 상단 메뉴바의 `Displayed Metrics` 서브메뉴와 1:1 양방향 실시간 바인딩.
+  - 지표 구성이 변경될 때마다 각 뷰 모드(Standard의 행 개수, Compact의 링 개수, Minimal의 태그 너비)에 맞추어 `NSAnimationContext` 기반으로 창 프레임이 부드럽게 자동 수축/확장.
+
+### 4.10. 미니멀 모드 너비 확장 및 텍스트 클리핑 방지 (Truncation Defense)
+* **문제점**: 6개 메트릭(CPU, GPU, RAM, SSD, NET, BAT)과 각종 컨트롤 버튼이 모두 추가되면서, 580pt 고정 너비 환경에서 글자 수가 초과되어 `C..`, `G..`, `R..` 형태로 라벨이 말줄임표(...)로 잘리는 현상 발생.
+* **해결책**:
+  - `MinimalMetricTag` 내부의 라벨 및 값 텍스트에 `.lineLimit(1)`과 `.fixedSize(horizontal: true, vertical: false)`를 적용하여 SwiftUI 레이아웃 엔진의 강제 텍스트 압축 원천 차단.
+  - 미니멀 모드 너비를 기본 580pt에서 **가변 너비 알고리즘 (`minimalWidth = 240 + activeMetrics * 88~112pt`)**으로 전면 개편하여, 6개 항목 전체 활성화 시 최대 **792pt**의 넉넉한 공간을 확보.
+  - 필요한 지표만 켜면 창 크기가 그에 맞게 360~500pt 대로 아담하게 자동 줄어들도록 개선.
+
+### 4.11. 시맨틱 버저닝 (v1.1.0)
+* `AppVersion` 중앙 상수를 정의하여 `CFBundleShortVersionString(1.1.0)`, `CFBundleVersion(2)`, 메뉴바 아이템, 위젯 푸터 크레딧(`v1.1.0 by krazyeom`), 설정 팝오버를 일관되게 동기화.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
@@ -235,6 +255,7 @@ mkdir -p /tmp/clang-cache
 # 2. 고속 네이티브 최적화 컴파일 (-O, -parse-as-library)
 swiftc -parse-as-library \
     -module-cache-path /tmp/clang-cache \
+    Sources/CGPUMonitor/AppConfig.swift \
     Sources/CGPUMonitor/Localization.swift \
     Sources/CGPUMonitor/SystemMetrics.swift \
     Sources/CGPUMonitor/DetailPopovers.swift \

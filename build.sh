@@ -9,6 +9,7 @@ mkdir -p /tmp/clang-cache
 
 swiftc -parse-as-library \
     -module-cache-path /tmp/clang-cache \
+    Sources/CGPUMonitor/AppConfig.swift \
     Sources/CGPUMonitor/Localization.swift \
     Sources/CGPUMonitor/SystemMetrics.swift \
     Sources/CGPUMonitor/DetailPopovers.swift \

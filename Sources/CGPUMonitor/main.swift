@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isAlwaysOnTop: Bool = true
     private var isOpaque: Bool = false
     private var currentLanguage: AppLanguage = .en
+    private var currentConfig: MetricConfig = MetricConfig.load()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -59,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     private func loadSavedState() {
+        self.currentConfig = MetricConfig.load()
         if let savedModeRaw = UserDefaults.standard.object(forKey: DefaultsKey.widgetMode) as? Int,
            let savedMode = WidgetMode(rawValue: savedModeRaw) {
             self.currentMode = savedMode
@@ -84,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.set(isOpaque, forKey: DefaultsKey.isOpaque)
         UserDefaults.standard.set(isAlwaysOnTop, forKey: DefaultsKey.isAlwaysOnTop)
         UserDefaults.standard.set(currentLanguage.rawValue, forKey: DefaultsKey.language)
+        currentConfig.save()
     }
     
     // NSWindowDelegate: 드래그 이동 시 위치 자동 기억
@@ -176,12 +179,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         )
         
+        let configBinding = Binding<MetricConfig>(
+            get: { [weak self] in self?.currentConfig ?? MetricConfig() },
+            set: { [weak self] newConfig in
+                self?.updateConfig(newConfig)
+            }
+        )
+        
         let contentView = WidgetView(
             monitor: monitor,
             mode: modeBinding,
             isAlwaysOnTop: pinBinding,
             isOpaque: opaqueBinding,
             language: languageBinding,
+            config: configBinding,
             onModeChange: { [weak self] newMode in
                 self?.setMode(newMode)
             },
@@ -195,6 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             },
             onLanguageChange: { [weak self] newLang in
                 self?.setLanguage(newLang)
+            },
+            onConfigChange: { [weak self] newConfig in
+                self?.updateConfig(newConfig)
             },
             onClose: { [weak panel] in
                 panel?.orderOut(nil)
@@ -213,24 +227,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.window = panel
     }
     
-    private func windowSize(for mode: WidgetMode) -> NSSize {
+    private func windowSize(for mode: WidgetMode, config: MetricConfig? = nil) -> NSSize {
+        let cfg = config ?? self.currentConfig
         switch mode {
         case .standard:
-            return NSSize(width: 360, height: 380)
+            let rows = max(1, (cfg.enabledCount + 1) / 2)
+            return NSSize(width: 360, height: CGFloat(105 + rows * 95))
         case .compact:
-            return NSSize(width: 380, height: 125)
+            let width = max(280, CGFloat(80 + cfg.enabledCount * 55))
+            return NSSize(width: width, height: 125)
         case .minimal:
-            return NSSize(width: 580, height: 28)
+            var width: CGFloat = 240
+            if cfg.showCPU { width += 88 }
+            if cfg.showGPU { width += 88 }
+            if cfg.showRAM { width += 88 }
+            if cfg.showDisk { width += 88 }
+            if cfg.showNetwork { width += 112 }
+            if cfg.showBattery { width += 88 }
+            return NSSize(width: max(360, width), height: 28)
         }
     }
     
-    public func setMode(_ newMode: WidgetMode) {
-        guard let window = self.window, currentMode != newMode else { return }
-        currentMode = newMode
-        saveCurrentState()
+    public func updateConfig(_ newConfig: MetricConfig) {
+        self.currentConfig = newConfig
+        self.currentConfig.save()
         setupStatusMenu()
-        
-        let targetSize = windowSize(for: newMode)
+        applyCurrentWindowSize(animate: true)
+    }
+    
+    private func applyCurrentWindowSize(animate: Bool = true) {
+        guard let window = self.window else { return }
+        let targetSize = windowSize(for: currentMode)
         var newFrame = window.frame
         
         let heightDiff = targetSize.height - newFrame.size.height
@@ -247,11 +274,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if newFrame.minY < visible.minY { newFrame.origin.y = visible.minY }
         }
         
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            window.animator().setFrame(newFrame, display: true)
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                window.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            window.setFrame(newFrame, display: true)
         }
+    }
+    
+    public func setMode(_ newMode: WidgetMode) {
+        guard self.window != nil, currentMode != newMode else { return }
+        currentMode = newMode
+        saveCurrentState()
+        setupStatusMenu()
+        applyCurrentWindowSize(animate: true)
     }
     
     public func setLanguage(_ newLang: AppLanguage) {
@@ -304,6 +343,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
+        // 표시 메트릭 설정 서브메뉴
+        let metricsSubmenu = NSMenu()
+        
+        let cpuItem = NSMenuItem(title: "CPU", action: #selector(toggleMetricCPU), keyEquivalent: "")
+        cpuItem.state = currentConfig.showCPU ? .on : .off
+        metricsSubmenu.addItem(cpuItem)
+        
+        let gpuItem = NSMenuItem(title: "GPU", action: #selector(toggleMetricGPU), keyEquivalent: "")
+        gpuItem.state = currentConfig.showGPU ? .on : .off
+        metricsSubmenu.addItem(gpuItem)
+        
+        let ramItem = NSMenuItem(title: "RAM", action: #selector(toggleMetricRAM), keyEquivalent: "")
+        ramItem.state = currentConfig.showRAM ? .on : .off
+        metricsSubmenu.addItem(ramItem)
+        
+        let diskItem = NSMenuItem(title: L10n.tr("SSD (Disk)", "SSD (디스크)", for: lang), action: #selector(toggleMetricDisk), keyEquivalent: "")
+        diskItem.state = currentConfig.showDisk ? .on : .off
+        metricsSubmenu.addItem(diskItem)
+        
+        let netItem = NSMenuItem(title: L10n.tr("Network", "네트워크", for: lang), action: #selector(toggleMetricNet), keyEquivalent: "")
+        netItem.state = currentConfig.showNetwork ? .on : .off
+        metricsSubmenu.addItem(netItem)
+        
+        let batItem = NSMenuItem(title: L10n.tr("Battery", "배터리", for: lang), action: #selector(toggleMetricBattery), keyEquivalent: "")
+        batItem.state = currentConfig.showBattery ? .on : .off
+        metricsSubmenu.addItem(batItem)
+        
+        let metricsMenuItem = NSMenuItem(title: L10n.tr("Displayed Metrics", "표시 항목 설정", for: lang), action: nil, keyEquivalent: "")
+        metricsMenuItem.submenu = metricsSubmenu
+        menu.addItem(metricsMenuItem)
+        
         // 언어 서브메뉴
         let langSubmenu = NSMenu()
         let enItem = NSMenuItem(title: "English", action: #selector(selectEnglish), keyEquivalent: "")
@@ -320,8 +390,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        // 개발자 정보 (Author: krazyeom)
-        let authorItem = NSMenuItem(title: "CGPU Monitor v1.0 (by krazyeom)", action: #selector(openAuthorGithub), keyEquivalent: "")
+        // 개발자 정보 (Author: krazyeom & Version)
+        let authorItem = NSMenuItem(title: "\(AppVersion.fullDisplay) (by krazyeom)", action: #selector(openAuthorGithub), keyEquivalent: "")
         authorItem.image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: "Author")
         menu.addItem(authorItem)
         
@@ -330,6 +400,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         statusItem.menu = menu
     }
+    
+    @objc private func toggleMetricCPU() { var c = currentConfig; c.toggle(.cpu); updateConfig(c) }
+    @objc private func toggleMetricGPU() { var c = currentConfig; c.toggle(.gpu); updateConfig(c) }
+    @objc private func toggleMetricRAM() { var c = currentConfig; c.toggle(.ram); updateConfig(c) }
+    @objc private func toggleMetricDisk() { var c = currentConfig; c.toggle(.disk); updateConfig(c) }
+    @objc private func toggleMetricNet() { var c = currentConfig; c.toggle(.network); updateConfig(c) }
+    @objc private func toggleMetricBattery() { var c = currentConfig; c.toggle(.battery); updateConfig(c) }
     
     @objc private func openAuthorGithub() {
         if let url = URL(string: "https://github.com/krazyeom/cgpu") {

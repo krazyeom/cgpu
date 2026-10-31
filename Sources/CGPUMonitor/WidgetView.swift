@@ -36,13 +36,16 @@ public struct WidgetView: View {
     @Binding var isAlwaysOnTop: Bool
     @Binding var isOpaque: Bool
     @Binding var language: AppLanguage
+    @Binding var config: MetricConfig
     
     @State private var hoveredMetric: MetricHoverType? = nil
+    @State private var isShowingConfigPopover: Bool = false
     
     var onModeChange: ((WidgetMode) -> Void)?
     var onTogglePin: ((Bool) -> Void)?
     var onToggleDesktop: ((Bool) -> Void)?
     var onLanguageChange: ((AppLanguage) -> Void)?
+    var onConfigChange: ((MetricConfig) -> Void)?
     var onClose: (() -> Void)?
     
     public init(
@@ -51,10 +54,12 @@ public struct WidgetView: View {
         isAlwaysOnTop: Binding<Bool>,
         isOpaque: Binding<Bool>,
         language: Binding<AppLanguage>,
+        config: Binding<MetricConfig>,
         onModeChange: ((WidgetMode) -> Void)? = nil,
         onTogglePin: ((Bool) -> Void)? = nil,
         onToggleDesktop: ((Bool) -> Void)? = nil,
         onLanguageChange: ((AppLanguage) -> Void)? = nil,
+        onConfigChange: ((MetricConfig) -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.monitor = monitor
@@ -62,10 +67,12 @@ public struct WidgetView: View {
         self._isAlwaysOnTop = isAlwaysOnTop
         self._isOpaque = isOpaque
         self._language = language
+        self._config = config
         self.onModeChange = onModeChange
         self.onTogglePin = onTogglePin
         self.onToggleDesktop = onToggleDesktop
         self.onLanguageChange = onLanguageChange
+        self.onConfigChange = onConfigChange
         self.onClose = onClose
     }
     
@@ -123,70 +130,82 @@ public struct WidgetView: View {
         VStack(spacing: 12) {
             headerBar(title: "CGPU Monitor")
             
-            // 2x3 그리드 (CPU, GPU, RAM, SSD, NET, BAT)
+            // 가변 메트릭 그리드 (설정에 따라 표시)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                MetricCard(
-                    title: "CPU",
-                    icon: "cpu",
-                    valueString: String(format: "%.0f%%", monitor.cpu.total),
-                    subtitle: String(format: "%.0f°C · %.1fW", monitor.cpu.temperatureC, monitor.cpu.powerWatts),
-                    percentage: monitor.cpu.total,
-                    color: .cyan,
-                    history: monitor.cpuHistory,
-                    isOpaque: isOpaque
-                )
-                .onHover { h in setHover(.cpu, h) }
-                .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
-                    CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                if config.showCPU {
+                    MetricCard(
+                        title: "CPU",
+                        icon: "cpu",
+                        valueString: String(format: "%.0f%%", monitor.cpu.total),
+                        subtitle: String(format: "%.0f°C · %.1fW", monitor.cpu.temperatureC, monitor.cpu.powerWatts),
+                        percentage: monitor.cpu.total,
+                        color: .cyan,
+                        history: monitor.cpuHistory,
+                        isOpaque: isOpaque
+                    )
+                    .onHover { h in setHover(.cpu, h) }
+                    .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                        CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                    }
                 }
                 
-                MetricCard(
-                    title: "GPU",
-                    icon: "sparkles.tv",
-                    valueString: String(format: "%.0f%%", monitor.gpu.usagePercentage),
-                    subtitle: String(format: "%.0f°C · %.1fW", monitor.gpu.temperatureC, monitor.gpu.powerWatts),
-                    percentage: monitor.gpu.usagePercentage,
-                    color: .purple,
-                    history: monitor.gpuHistory,
-                    isOpaque: isOpaque
-                )
-                .onHover { h in setHover(.gpu, h) }
-                .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
-                    GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                if config.showGPU {
+                    MetricCard(
+                        title: "GPU",
+                        icon: "sparkles.tv",
+                        valueString: String(format: "%.0f%%", monitor.gpu.usagePercentage),
+                        subtitle: String(format: "%.0f°C · %.1fW", monitor.gpu.temperatureC, monitor.gpu.powerWatts),
+                        percentage: monitor.gpu.usagePercentage,
+                        color: .purple,
+                        history: monitor.gpuHistory,
+                        isOpaque: isOpaque
+                    )
+                    .onHover { h in setHover(.gpu, h) }
+                    .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                        GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                    }
                 }
                 
-                MetricCard(
-                    title: "RAM",
-                    icon: "memorychip",
-                    valueString: String(format: "%.0f%%", monitor.ram.percentage),
-                    subtitle: String(format: "%.1f / %.0f GB", monitor.ram.usedGB, monitor.ram.totalGB),
-                    percentage: monitor.ram.percentage,
-                    color: .green,
-                    history: monitor.ramHistory,
-                    isOpaque: isOpaque
-                )
-                .onHover { h in setHover(.ram, h) }
-                .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
-                    RAMPopoverView(ram: monitor.ram, lang: language)
+                if config.showRAM {
+                    MetricCard(
+                        title: "RAM",
+                        icon: "memorychip",
+                        valueString: String(format: "%.0f%%", monitor.ram.percentage),
+                        subtitle: String(format: "%.1f / %.0f GB", monitor.ram.usedGB, monitor.ram.totalGB),
+                        percentage: monitor.ram.percentage,
+                        color: .green,
+                        history: monitor.ramHistory,
+                        isOpaque: isOpaque
+                    )
+                    .onHover { h in setHover(.ram, h) }
+                    .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                        RAMPopoverView(ram: monitor.ram, lang: language)
+                    }
                 }
                 
-                DiskMetricCard(disk: monitor.disk, isOpaque: isOpaque, lang: language)
-                    .onHover { h in setHover(.disk, h) }
-                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
-                        DiskPopoverView(disk: monitor.disk, lang: language)
-                    }
+                if config.showDisk {
+                    DiskMetricCard(disk: monitor.disk, isOpaque: isOpaque, lang: language)
+                        .onHover { h in setHover(.disk, h) }
+                        .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                            DiskPopoverView(disk: monitor.disk, lang: language)
+                        }
+                }
                 
-                NetworkMetricCard(net: monitor.net, isOpaque: isOpaque, lang: language)
-                    .onHover { h in setHover(.net, h) }
-                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
-                        NetworkPopoverView(net: monitor.net, lang: language)
-                    }
+                if config.showNetwork {
+                    NetworkMetricCard(net: monitor.net, isOpaque: isOpaque, lang: language)
+                        .onHover { h in setHover(.net, h) }
+                        .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                            NetworkPopoverView(net: monitor.net, lang: language)
+                        }
+                }
                 
-                BatteryMetricCard(battery: monitor.battery, isOpaque: isOpaque, lang: language)
-                    .onHover { h in setHover(.battery, h) }
-                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
-                        BatteryPopoverView(battery: monitor.battery, lang: language)
-                    }
+                if config.showBattery {
+                    BatteryMetricCard(battery: monitor.battery, isOpaque: isOpaque, lang: language)
+                        .onHover { h in setHover(.battery, h) }
+                        .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                            BatteryPopoverView(battery: monitor.battery, lang: language)
+                        }
+                }
             }
             
             // 하단 상태바
@@ -200,7 +219,7 @@ public struct WidgetView: View {
                 
                 Spacer()
                 
-                Text("by krazyeom")
+                Text("\(AppVersion.displayString) by krazyeom")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary.opacity(0.8))
                 
@@ -212,58 +231,79 @@ public struct WidgetView: View {
             .padding(.horizontal, 4)
         }
         .padding(14)
-        .frame(width: 360, height: 380)
+        .frame(width: 360, height: standardHeight)
     }
     
-    // MARK: - 2. Compact View (작게 6개 링)
+    private var standardHeight: CGFloat {
+        let rows = max(1, (config.enabledCount + 1) / 2)
+        return CGFloat(105 + rows * 95)
+    }
+    
+    // MARK: - 2. Compact View (작게 가변 링)
     private var compactView: some View {
         VStack(spacing: 10) {
             headerBar(title: "CGPU")
             
             HStack(spacing: 10) {
-                CompactRing(title: "CPU", percentage: monitor.cpu.total, color: .cyan)
-                    .onHover { h in setHover(.cpu, h) }
-                    .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
-                        CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
-                    }
+                if config.showCPU {
+                    CompactRing(title: "CPU", percentage: monitor.cpu.total, color: .cyan)
+                        .onHover { h in setHover(.cpu, h) }
+                        .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                            CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                        }
+                }
                 
-                CompactRing(title: "GPU", percentage: monitor.gpu.usagePercentage, color: .purple)
-                    .onHover { h in setHover(.gpu, h) }
-                    .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
-                        GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
-                    }
+                if config.showGPU {
+                    CompactRing(title: "GPU", percentage: monitor.gpu.usagePercentage, color: .purple)
+                        .onHover { h in setHover(.gpu, h) }
+                        .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                            GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                        }
+                }
                 
-                CompactRing(title: "RAM", percentage: monitor.ram.percentage, color: .green)
-                    .onHover { h in setHover(.ram, h) }
-                    .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
-                        RAMPopoverView(ram: monitor.ram, lang: language)
-                    }
+                if config.showRAM {
+                    CompactRing(title: "RAM", percentage: monitor.ram.percentage, color: .green)
+                        .onHover { h in setHover(.ram, h) }
+                        .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                            RAMPopoverView(ram: monitor.ram, lang: language)
+                        }
+                }
                 
-                CompactRing(title: "SSD", percentage: monitor.disk.percentage, color: .orange)
-                    .onHover { h in setHover(.disk, h) }
-                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
-                        DiskPopoverView(disk: monitor.disk, lang: language)
-                    }
+                if config.showDisk {
+                    CompactRing(title: "SSD", percentage: monitor.disk.percentage, color: .orange)
+                        .onHover { h in setHover(.disk, h) }
+                        .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                            DiskPopoverView(disk: monitor.disk, lang: language)
+                        }
+                }
                 
-                CompactSpeedRing(title: "NET", speedString: monitor.net.downloadSpeedFormatted, color: .blue)
-                    .onHover { h in setHover(.net, h) }
-                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
-                        NetworkPopoverView(net: monitor.net, lang: language)
-                    }
+                if config.showNetwork {
+                    CompactSpeedRing(title: "NET", speedString: monitor.net.downloadSpeedFormatted, color: .blue)
+                        .onHover { h in setHover(.net, h) }
+                        .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                            NetworkPopoverView(net: monitor.net, lang: language)
+                        }
+                }
                 
-                CompactRing(title: "BAT", percentage: Double(monitor.battery.percentage), color: monitor.battery.isCharging ? .green : .yellow)
-                    .onHover { h in setHover(.battery, h) }
-                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
-                        BatteryPopoverView(battery: monitor.battery, lang: language)
-                    }
+                if config.showBattery {
+                    CompactRing(title: "BAT", percentage: Double(monitor.battery.percentage), color: monitor.battery.isCharging ? .green : .yellow)
+                        .onHover { h in setHover(.battery, h) }
+                        .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                            BatteryPopoverView(battery: monitor.battery, lang: language)
+                        }
+                }
             }
             .padding(.vertical, 2)
         }
         .padding(12)
-        .frame(width: 380, height: 125)
+        .frame(width: compactWidth, height: 125)
     }
     
-    // MARK: - 3. Minimal View (완전 한줄 6개 항목)
+    private var compactWidth: CGFloat {
+        return max(280, CGFloat(80 + config.enabledCount * 55))
+    }
+    
+    // MARK: - 3. Minimal View (완전 한줄 가변 항목 & 넓어진 폭)
     private var minimalView: some View {
         HStack(spacing: 7) {
             // 미니 타이틀/아이콘
@@ -274,52 +314,78 @@ public struct WidgetView: View {
                 Text("CGPU")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.trailing, 2)
             
-            // CPU, GPU, RAM, SSD, NET, BAT
-            HStack(spacing: 5) {
-                MinimalMetricTag(label: "CPU", valueString: String(format: "%2.0f%%", monitor.cpu.total), color: .cyan, isOpaque: isOpaque)
-                    .onHover { h in setHover(.cpu, h) }
-                    .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
-                        CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
-                    }
+            // CPU, GPU, RAM, SSD, NET, BAT (설정에 따라 표시)
+            HStack(spacing: 6) {
+                if config.showCPU {
+                    MinimalMetricTag(label: "CPU", valueString: String(format: "%2.0f%%", monitor.cpu.total), color: .cyan, isOpaque: isOpaque)
+                        .onHover { h in setHover(.cpu, h) }
+                        .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                            CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                        }
+                }
                 
-                MinimalMetricTag(label: "GPU", valueString: String(format: "%2.0f%%", monitor.gpu.usagePercentage), color: .purple, isOpaque: isOpaque)
-                    .onHover { h in setHover(.gpu, h) }
-                    .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
-                        GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
-                    }
+                if config.showGPU {
+                    MinimalMetricTag(label: "GPU", valueString: String(format: "%2.0f%%", monitor.gpu.usagePercentage), color: .purple, isOpaque: isOpaque)
+                        .onHover { h in setHover(.gpu, h) }
+                        .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                            GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                        }
+                }
                 
-                MinimalMetricTag(label: "RAM", valueString: String(format: "%2.0f%%", monitor.ram.percentage), color: .green, isOpaque: isOpaque)
-                    .onHover { h in setHover(.ram, h) }
-                    .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
-                        RAMPopoverView(ram: monitor.ram, lang: language)
-                    }
+                if config.showRAM {
+                    MinimalMetricTag(label: "RAM", valueString: String(format: "%2.0f%%", monitor.ram.percentage), color: .green, isOpaque: isOpaque)
+                        .onHover { h in setHover(.ram, h) }
+                        .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                            RAMPopoverView(ram: monitor.ram, lang: language)
+                        }
+                }
                 
-                MinimalMetricTag(label: "SSD", valueString: String(format: "%2.0f%%", monitor.disk.percentage), color: .orange, isOpaque: isOpaque)
-                    .onHover { h in setHover(.disk, h) }
-                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
-                        DiskPopoverView(disk: monitor.disk, lang: language)
-                    }
+                if config.showDisk {
+                    MinimalMetricTag(label: "SSD", valueString: String(format: "%2.0f%%", monitor.disk.percentage), color: .orange, isOpaque: isOpaque)
+                        .onHover { h in setHover(.disk, h) }
+                        .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                            DiskPopoverView(disk: monitor.disk, lang: language)
+                        }
+                }
                 
-                MinimalMetricTag(label: "NET", valueString: monitor.net.downloadSpeedFormatted, color: .blue, isOpaque: isOpaque)
-                    .onHover { h in setHover(.net, h) }
-                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
-                        NetworkPopoverView(net: monitor.net, lang: language)
-                    }
+                if config.showNetwork {
+                    MinimalMetricTag(label: "NET", valueString: monitor.net.downloadSpeedFormatted, color: .blue, isOpaque: isOpaque)
+                        .onHover { h in setHover(.net, h) }
+                        .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                            NetworkPopoverView(net: monitor.net, lang: language)
+                        }
+                }
                 
-                MinimalMetricTag(label: "BAT", valueString: "\(monitor.battery.percentage)%", color: monitor.battery.isCharging ? .green : .yellow, isOpaque: isOpaque)
-                    .onHover { h in setHover(.battery, h) }
-                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
-                        BatteryPopoverView(battery: monitor.battery, lang: language)
-                    }
+                if config.showBattery {
+                    MinimalMetricTag(label: "BAT", valueString: "\(monitor.battery.percentage)%", color: monitor.battery.isCharging ? .green : .yellow, isOpaque: isOpaque)
+                        .onHover { h in setHover(.battery, h) }
+                        .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                            BatteryPopoverView(battery: monitor.battery, lang: language)
+                        }
+                }
             }
             
-            Spacer(minLength: 6)
+            Spacer(minLength: 8)
             
             // 컨트롤 버튼
             HStack(spacing: 5) {
+                // Config (Gear) Popover Button
+                Button(action: { isShowingConfigPopover.toggle() }) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(isShowingConfigPopover ? .cyan : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("Displayed Metrics Settings", "표시 항목 설정", for: language))
+                .popover(isPresented: $isShowingConfigPopover, arrowEdge: .bottom) {
+                    ConfigPopoverView(config: $config, lang: language, onConfigChanged: onConfigChange)
+                }
+                
                 Button(action: toggleLanguage) {
                     Text(language == .en ? "KO" : "EN")
                         .font(.system(size: 9, weight: .bold, design: .rounded))
@@ -371,7 +437,18 @@ public struct WidgetView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: 580, height: 28) // 580pt로 확장하여 6개 메트릭과 버튼이 여유롭게 정렬
+        .frame(width: minimalWidth, height: 28)
+    }
+    
+    private var minimalWidth: CGFloat {
+        var width: CGFloat = 240
+        if config.showCPU { width += 88 }
+        if config.showGPU { width += 88 }
+        if config.showRAM { width += 88 }
+        if config.showDisk { width += 88 }
+        if config.showNetwork { width += 112 }
+        if config.showBattery { width += 88 }
+        return max(360, width)
     }
     
     // MARK: - Helper Methods
@@ -426,6 +503,18 @@ public struct WidgetView: View {
             }
             .buttonStyle(.plain)
             .help(language == .en ? "Switch to Korean" : "Switch to English")
+            
+            // Config (Gear) Popover Button
+            Button(action: { isShowingConfigPopover.toggle() }) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isShowingConfigPopover ? .cyan : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(L10n.tr("Displayed Metrics Settings", "표시 항목 설정", for: language))
+            .popover(isPresented: $isShowingConfigPopover, arrowEdge: .bottom) {
+                ConfigPopoverView(config: $config, lang: language, onConfigChanged: onConfigChange)
+            }
             
             Button(action: { isOpaque.toggle() }) {
                 Image(systemName: isOpaque ? "circle.righthalf.filled" : "circle.lefthalf.filled")
@@ -488,12 +577,16 @@ struct MinimalMetricTag: View {
             Text(label)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(color)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             
             Text(valueString)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(.primary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, 6)
         .padding(.vertical, 2.5)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
