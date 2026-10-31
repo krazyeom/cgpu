@@ -1,134 +1,159 @@
 import SwiftUI
 
+public enum WidgetMode: Int, CaseIterable, Sendable {
+    case standard // 보통 (2x3 대시보드 + 스파크라인)
+    case compact  // 작게 (6개 원형 링 게이지)
+    case minimal  // 완전 한줄 (macOS Title Bar 정확한 높이 28pt)
+    
+    public var icon: String {
+        switch self {
+        case .standard: return "rectangle.compress.vertical"
+        case .compact: return "menubar.rectangle"
+        case .minimal: return "rectangle.expand.vertical"
+        }
+    }
+    
+    public func nextTitle(for lang: AppLanguage) -> String {
+        switch self {
+        case .standard: return L10n.tr("Switch to Compact", "작은 크기로 전환", for: lang)
+        case .compact: return L10n.tr("Switch to Minimal", "한 줄 크기로 전환", for: lang)
+        case .minimal: return L10n.tr("Switch to Standard", "보통 크기로 전환", for: lang)
+        }
+    }
+    
+    public var next: WidgetMode {
+        switch self {
+        case .standard: return .compact
+        case .compact: return .minimal
+        case .minimal: return .standard
+        }
+    }
+}
+
 public struct WidgetView: View {
     @ObservedObject var monitor: SystemMonitor
-    @State private var isExpanded: Bool = true
-    @State private var isAlwaysOnTop: Bool = true
-    @State private var isPinnedToDesktop: Bool = false
+    @Binding var mode: WidgetMode
+    @Binding var isAlwaysOnTop: Bool
+    @Binding var isOpaque: Bool
+    @Binding var language: AppLanguage
     
+    @State private var hoveredMetric: MetricHoverType? = nil
+    
+    var onModeChange: ((WidgetMode) -> Void)?
     var onTogglePin: ((Bool) -> Void)?
     var onToggleDesktop: ((Bool) -> Void)?
+    var onLanguageChange: ((AppLanguage) -> Void)?
     var onClose: (() -> Void)?
     
     public init(
         monitor: SystemMonitor,
+        mode: Binding<WidgetMode>,
+        isAlwaysOnTop: Binding<Bool>,
+        isOpaque: Binding<Bool>,
+        language: Binding<AppLanguage>,
+        onModeChange: ((WidgetMode) -> Void)? = nil,
         onTogglePin: ((Bool) -> Void)? = nil,
         onToggleDesktop: ((Bool) -> Void)? = nil,
+        onLanguageChange: ((AppLanguage) -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.monitor = monitor
+        self._mode = mode
+        self._isAlwaysOnTop = isAlwaysOnTop
+        self._isOpaque = isOpaque
+        self._language = language
+        self.onModeChange = onModeChange
         self.onTogglePin = onTogglePin
         self.onToggleDesktop = onToggleDesktop
+        self.onLanguageChange = onLanguageChange
         self.onClose = onClose
     }
     
     public var body: some View {
-        VStack(spacing: 12) {
-            // 상단 헤더 바
-            headerBar
-            
-            if isExpanded {
-                expandedDashboard
+        ZStack {
+            switch mode {
+            case .standard:
+                standardView
+                    .transition(.opacity)
+            case .compact:
+                compactView
+                    .transition(.opacity)
+            case .minimal:
+                minimalView
+                    .transition(.opacity)
+            }
+        }
+        .background(backgroundView)
+        .clipShape(RoundedRectangle(cornerRadius: mode == .minimal ? 7 : 16, style: .continuous))
+        .animation(.easeInOut(duration: 0.2), value: mode)
+        .animation(.easeInOut(duration: 0.2), value: isOpaque)
+        .animation(.easeInOut(duration: 0.15), value: language)
+    }
+    
+    // MARK: - Background View
+    private var backgroundView: some View {
+        let cornerRadius: CGFloat = mode == .minimal ? 7 : 16
+        return ZStack {
+            if isOpaque {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color(red: 0.12, green: 0.12, blue: 0.14))
             } else {
-                compactDashboard
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10).opacity(0.48))
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.25),
-                                    Color.white.opacity(0.05),
-                                    Color.black.opacity(0.2)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(isOpaque ? 0.22 : 0.35),
+                            Color.white.opacity(isOpaque ? 0.08 : 0.12)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
                 )
-                .shadow(color: Color.black.opacity(0.35), radius: 20, x: 0, y: 10)
         )
-        .frame(width: isExpanded ? 340 : 310)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
     }
     
-    // MARK: - Header
-    private var headerBar: some View {
-        HStack {
-            Image(systemName: "cpu.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+    // MARK: - 1. Standard View (보통 2x3 그리드)
+    private var standardView: some View {
+        VStack(spacing: 12) {
+            headerBar(title: "CGPU Monitor")
             
-            Text("CGPU Monitor")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
-            
-            Spacer()
-            
-            // 컴팩트/확장 토글
-            Button(action: { isExpanded.toggle() }) {
-                Image(systemName: isExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help(isExpanded ? "컴팩트 뷰로 전환" : "상세 뷰로 전환")
-            
-            // 항상 위 (Pin)
-            Button(action: {
-                isAlwaysOnTop.toggle()
-                if isAlwaysOnTop { isPinnedToDesktop = false }
-                onTogglePin?(isAlwaysOnTop)
-            }) {
-                Image(systemName: isAlwaysOnTop ? "pin.fill" : "pin")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isAlwaysOnTop ? .yellow : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help("항상 화면 위에 표시")
-            
-            // 닫기 버튼
-            Button(action: { onClose?() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-            .buttonStyle(.plain)
-            .help("위젯 닫기 (메뉴바에서 다시 열기 가능)")
-        }
-        .padding(.horizontal, 2)
-    }
-    
-    // MARK: - Expanded Dashboard
-    private var expandedDashboard: some View {
-        VStack(spacing: 10) {
-            // 2x2 그리드
+            // 2x3 그리드 (CPU, GPU, RAM, SSD, NET, BAT)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 MetricCard(
                     title: "CPU",
                     icon: "cpu",
                     valueString: String(format: "%.0f%%", monitor.cpu.total),
-                    subtitle: "\(monitor.cpu.coreCount) Cores",
+                    subtitle: String(format: "%.0f°C · %.1fW", monitor.cpu.temperatureC, monitor.cpu.powerWatts),
                     percentage: monitor.cpu.total,
                     color: .cyan,
-                    history: monitor.cpuHistory
+                    history: monitor.cpuHistory,
+                    isOpaque: isOpaque
                 )
+                .onHover { h in setHover(.cpu, h) }
+                .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                    CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                }
                 
                 MetricCard(
                     title: "GPU",
                     icon: "sparkles.tv",
-                    valueString: String(format: "%.0f%%", monitor.gpu),
-                    subtitle: "Apple Silicon",
-                    percentage: monitor.gpu,
+                    valueString: String(format: "%.0f%%", monitor.gpu.usagePercentage),
+                    subtitle: String(format: "%.0f°C · %.1fW", monitor.gpu.temperatureC, monitor.gpu.powerWatts),
+                    percentage: monitor.gpu.usagePercentage,
                     color: .purple,
-                    history: monitor.gpuHistory
+                    history: monitor.gpuHistory,
+                    isOpaque: isOpaque
                 )
+                .onHover { h in setHover(.gpu, h) }
+                .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                    GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                }
                 
                 MetricCard(
                     title: "RAM",
@@ -137,12 +162,31 @@ public struct WidgetView: View {
                     subtitle: String(format: "%.1f / %.0f GB", monitor.ram.usedGB, monitor.ram.totalGB),
                     percentage: monitor.ram.percentage,
                     color: .green,
-                    history: monitor.ramHistory
+                    history: monitor.ramHistory,
+                    isOpaque: isOpaque
                 )
+                .onHover { h in setHover(.ram, h) }
+                .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                    RAMPopoverView(ram: monitor.ram, lang: language)
+                }
                 
-                DiskMetricCard(
-                    disk: monitor.disk
-                )
+                DiskMetricCard(disk: monitor.disk, isOpaque: isOpaque, lang: language)
+                    .onHover { h in setHover(.disk, h) }
+                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                        DiskPopoverView(disk: monitor.disk, lang: language)
+                    }
+                
+                NetworkMetricCard(net: monitor.net, isOpaque: isOpaque, lang: language)
+                    .onHover { h in setHover(.net, h) }
+                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                        NetworkPopoverView(net: monitor.net, lang: language)
+                    }
+                
+                BatteryMetricCard(battery: monitor.battery, isOpaque: isOpaque, lang: language)
+                    .onHover { h in setHover(.battery, h) }
+                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                        BatteryPopoverView(battery: monitor.battery, lang: language)
+                    }
             }
             
             // 하단 상태바
@@ -150,36 +194,315 @@ public struct WidgetView: View {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 6, height: 6)
-                Text("실시간 1초 갱신")
+                Text(monitor.sensors.fanStatusString(for: language))
                     .font(.system(size: 10, weight: .regular))
                     .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                Text(monitor.cpu.modelName)
-                    .font(.system(size: 9, weight: .regular))
+                Text("by krazyeom")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary.opacity(0.8))
+                
+                Text(String(format: "%@: %.1f W", L10n.tr("Power", "전력", for: language), monitor.sensors.totalSystemPowerWatts))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
             .padding(.top, 2)
             .padding(.horizontal, 4)
         }
+        .padding(14)
+        .frame(width: 360, height: 380)
     }
     
-    // MARK: - Compact Dashboard
-    private var compactDashboard: some View {
-        HStack(spacing: 12) {
-            CompactRing(title: "CPU", percentage: monitor.cpu.total, color: .cyan)
-            CompactRing(title: "GPU", percentage: monitor.gpu, color: .purple)
-            CompactRing(title: "RAM", percentage: monitor.ram.percentage, color: .green)
-            CompactRing(title: "SSD", percentage: monitor.disk.percentage, color: .orange)
+    // MARK: - 2. Compact View (작게 6개 링)
+    private var compactView: some View {
+        VStack(spacing: 10) {
+            headerBar(title: "CGPU")
+            
+            HStack(spacing: 10) {
+                CompactRing(title: "CPU", percentage: monitor.cpu.total, color: .cyan)
+                    .onHover { h in setHover(.cpu, h) }
+                    .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                        CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                    }
+                
+                CompactRing(title: "GPU", percentage: monitor.gpu.usagePercentage, color: .purple)
+                    .onHover { h in setHover(.gpu, h) }
+                    .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                        GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                    }
+                
+                CompactRing(title: "RAM", percentage: monitor.ram.percentage, color: .green)
+                    .onHover { h in setHover(.ram, h) }
+                    .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                        RAMPopoverView(ram: monitor.ram, lang: language)
+                    }
+                
+                CompactRing(title: "SSD", percentage: monitor.disk.percentage, color: .orange)
+                    .onHover { h in setHover(.disk, h) }
+                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                        DiskPopoverView(disk: monitor.disk, lang: language)
+                    }
+                
+                CompactSpeedRing(title: "NET", speedString: monitor.net.downloadSpeedFormatted, color: .blue)
+                    .onHover { h in setHover(.net, h) }
+                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                        NetworkPopoverView(net: monitor.net, lang: language)
+                    }
+                
+                CompactRing(title: "BAT", percentage: Double(monitor.battery.percentage), color: monitor.battery.isCharging ? .green : .yellow)
+                    .onHover { h in setHover(.battery, h) }
+                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                        BatteryPopoverView(battery: monitor.battery, lang: language)
+                    }
+            }
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .frame(width: 380, height: 125)
+    }
+    
+    // MARK: - 3. Minimal View (완전 한줄 6개 항목)
+    private var minimalView: some View {
+        HStack(spacing: 7) {
+            // 미니 타이틀/아이콘
+            HStack(spacing: 3) {
+                Image(systemName: "cpu.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+                Text("CGPU")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            .padding(.trailing, 2)
+            
+            // CPU, GPU, RAM, SSD, NET, BAT
+            HStack(spacing: 5) {
+                MinimalMetricTag(label: "CPU", valueString: String(format: "%2.0f%%", monitor.cpu.total), color: .cyan, isOpaque: isOpaque)
+                    .onHover { h in setHover(.cpu, h) }
+                    .popover(isPresented: isHoverBinding(.cpu), arrowEdge: .bottom) {
+                        CPUPopoverView(cpu: monitor.cpu, sensors: monitor.sensors, lang: language)
+                    }
+                
+                MinimalMetricTag(label: "GPU", valueString: String(format: "%2.0f%%", monitor.gpu.usagePercentage), color: .purple, isOpaque: isOpaque)
+                    .onHover { h in setHover(.gpu, h) }
+                    .popover(isPresented: isHoverBinding(.gpu), arrowEdge: .bottom) {
+                        GPUPopoverView(gpu: monitor.gpu, sensors: monitor.sensors, lang: language)
+                    }
+                
+                MinimalMetricTag(label: "RAM", valueString: String(format: "%2.0f%%", monitor.ram.percentage), color: .green, isOpaque: isOpaque)
+                    .onHover { h in setHover(.ram, h) }
+                    .popover(isPresented: isHoverBinding(.ram), arrowEdge: .bottom) {
+                        RAMPopoverView(ram: monitor.ram, lang: language)
+                    }
+                
+                MinimalMetricTag(label: "SSD", valueString: String(format: "%2.0f%%", monitor.disk.percentage), color: .orange, isOpaque: isOpaque)
+                    .onHover { h in setHover(.disk, h) }
+                    .popover(isPresented: isHoverBinding(.disk), arrowEdge: .bottom) {
+                        DiskPopoverView(disk: monitor.disk, lang: language)
+                    }
+                
+                MinimalMetricTag(label: "NET", valueString: monitor.net.downloadSpeedFormatted, color: .blue, isOpaque: isOpaque)
+                    .onHover { h in setHover(.net, h) }
+                    .popover(isPresented: isHoverBinding(.net), arrowEdge: .bottom) {
+                        NetworkPopoverView(net: monitor.net, lang: language)
+                    }
+                
+                MinimalMetricTag(label: "BAT", valueString: "\(monitor.battery.percentage)%", color: monitor.battery.isCharging ? .green : .yellow, isOpaque: isOpaque)
+                    .onHover { h in setHover(.battery, h) }
+                    .popover(isPresented: isHoverBinding(.battery), arrowEdge: .bottom) {
+                        BatteryPopoverView(battery: monitor.battery, lang: language)
+                    }
+            }
+            
+            Spacer(minLength: 6)
+            
+            // 컨트롤 버튼
+            HStack(spacing: 5) {
+                Button(action: toggleLanguage) {
+                    Text(language == .en ? "KO" : "EN")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(language == .en ? "Switch to Korean" : "Switch to English")
+                
+                Button(action: { isOpaque.toggle() }) {
+                    Image(systemName: isOpaque ? "circle.righthalf.filled" : "circle.lefthalf.filled")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(isOpaque ? .cyan : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isOpaque ? L10n.tr("Switch to Translucent", "반투명 블러로 변경", for: language) : L10n.tr("Switch to Opaque", "불투명 배경으로 변경", for: language))
+                
+                Button(action: cycleMode) {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                .help(mode.nextTitle(for: language))
+                
+                Button(action: {
+                    isAlwaysOnTop.toggle()
+                    onTogglePin?(isAlwaysOnTop)
+                }) {
+                    Image(systemName: isAlwaysOnTop ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(isAlwaysOnTop ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("Always on Top", "항상 화면 위에 표시", for: language))
+                
+                Button(action: { onClose?() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("Close Widget", "위젯 닫기", for: language))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 580, height: 28) // 580pt로 확장하여 6개 메트릭과 버튼이 여유롭게 정렬
+    }
+    
+    // MARK: - Helper Methods
+    private func toggleLanguage() {
+        let newLang: AppLanguage = (language == .en ? .ko : .en)
+        language = newLang
+        onLanguageChange?(newLang)
+    }
+    
+    private func setHover(_ type: MetricHoverType, _ hovering: Bool) {
+        if hovering {
+            hoveredMetric = type
+        } else if hoveredMetric == type {
+            hoveredMetric = nil
+        }
+    }
+    
+    private func isHoverBinding(_ type: MetricHoverType) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { self.hoveredMetric == type },
+            set: { isPresenting in
+                if !isPresenting && self.hoveredMetric == type {
+                    self.hoveredMetric = nil
+                }
+            }
+        )
+    }
+    
+    // MARK: - Header Bar (Standard & Compact 공용)
+    private func headerBar(title: String) -> some View {
+        HStack {
+            Image(systemName: "cpu.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+            
+            Text(title)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            Button(action: toggleLanguage) {
+                Text(language == .en ? "KO" : "EN")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(language == .en ? "Switch to Korean" : "Switch to English")
+            
+            Button(action: { isOpaque.toggle() }) {
+                Image(systemName: isOpaque ? "circle.righthalf.filled" : "circle.lefthalf.filled")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isOpaque ? .cyan : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(isOpaque ? L10n.tr("Switch to Translucent", "반투명 블러로 변경", for: language) : L10n.tr("Switch to Opaque", "불투명 배경으로 변경", for: language))
+            
+            Button(action: cycleMode) {
+                Image(systemName: mode.icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(mode.nextTitle(for: language))
+            
+            Button(action: {
+                isAlwaysOnTop.toggle()
+                onTogglePin?(isAlwaysOnTop)
+            }) {
+                Image(systemName: isAlwaysOnTop ? "pin.fill" : "pin")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isAlwaysOnTop ? .yellow : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(L10n.tr("Always on Top", "항상 화면 위에 표시", for: language))
+            
+            Button(action: { onClose?() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.tr("Close Widget", "위젯 닫기", for: language))
+        }
+        .padding(.horizontal, 2)
+    }
+    
+    private func cycleMode() {
+        let nextMode = mode.next
+        mode = nextMode
+        onModeChange?(nextMode)
     }
 }
 
-// MARK: - Metric Card
+// MARK: - Minimal Metric Tag
+struct MinimalMetricTag: View {
+    let label: String
+    let valueString: String
+    let color: Color
+    var isOpaque: Bool = true
+    
+    var body: some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(color)
+                .frame(width: 5, height: 5)
+            
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(color)
+            
+            Text(valueString)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2.5)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isOpaque ? Color.white.opacity(0.08) : Color.white.opacity(0.10))
+        )
+    }
+}
+
+// MARK: - Metric Card (Standard)
 struct MetricCard: View {
     let title: String
     let icon: String
@@ -188,6 +511,7 @@ struct MetricCard: View {
     let percentage: Double
     let color: Color
     let history: [Double]
+    var isOpaque: Bool = true
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -201,7 +525,6 @@ struct MetricCard: View {
                     .foregroundColor(.primary)
             }
             
-            // 프로그레스 바
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -221,7 +544,6 @@ struct MetricCard: View {
             }
             .frame(height: 5)
             
-            // 미니 스파크라인 그래프
             MiniSparkline(values: history, color: color)
                 .frame(height: 16)
             
@@ -233,14 +555,16 @@ struct MetricCard: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.18))
+                .fill(isOpaque ? Color.white.opacity(0.06) : Color.black.opacity(0.18))
         )
     }
 }
 
-// MARK: - Disk Metric Card
+// MARK: - Disk Metric Card (Standard)
 struct DiskMetricCard: View {
     let disk: DiskUsage
+    var isOpaque: Bool = true
+    var lang: AppLanguage = .en
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -254,7 +578,6 @@ struct DiskMetricCard: View {
                     .foregroundColor(.primary)
             }
             
-            // 프로그레스 바
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -274,13 +597,12 @@ struct DiskMetricCard: View {
             }
             .frame(height: 5)
             
-            // 여유 용량 표시
             HStack {
-                Text(String(format: "%.0f GB 여유", disk.freeGB))
+                Text(String(format: "%.0f GB %@", disk.freeGB, L10n.tr("Free", "여유", for: lang)))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text(String(format: "총 %.0f GB", disk.totalGB))
+                Text(String(format: "%@ %.0f GB", L10n.tr("Total", "총", for: lang), disk.totalGB))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundColor(.secondary)
             }
@@ -294,12 +616,129 @@ struct DiskMetricCard: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.18))
+                .fill(isOpaque ? Color.white.opacity(0.06) : Color.black.opacity(0.18))
         )
     }
 }
 
-// MARK: - Compact Ring
+// MARK: - Network Metric Card (Standard)
+struct NetworkMetricCard: View {
+    let net: NetworkMetrics
+    var isOpaque: Bool = true
+    var lang: AppLanguage = .en
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("NET", systemImage: "network")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.blue)
+                Spacer()
+                Text(net.downloadSpeedFormatted)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+            }
+            
+            HStack {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 9))
+                    .foregroundColor(.cyan)
+                Text(net.downloadSpeedFormatted)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 9))
+                    .foregroundColor(.indigo)
+                Text(net.uploadSpeedFormatted)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack {
+                Text(L10n.tr("Total", "누적", for: lang))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(String(format: "%.1f GB", net.totalDownloadGB))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 2)
+            
+            Text(net.interfaceName)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.8))
+                .lineLimit(1)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isOpaque ? Color.white.opacity(0.06) : Color.black.opacity(0.18))
+        )
+    }
+}
+
+// MARK: - Battery Metric Card (Standard)
+struct BatteryMetricCard: View {
+    let battery: BatteryMetrics
+    var isOpaque: Bool = true
+    var lang: AppLanguage = .en
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("BAT", systemImage: battery.isCharging ? "battery.100.bolt" : "battery.100")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(battery.isCharging ? .green : .yellow)
+                Spacer()
+                Text("\(battery.percentage)%")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 5)
+                    
+                    Capsule()
+                        .fill(battery.isCharging ? Color.green : Color.yellow)
+                        .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(battery.percentage) / 100.0)), height: 5)
+                }
+            }
+            .frame(height: 5)
+            
+            HStack {
+                Text(battery.isACPowered ? L10n.tr("Power Adapter", "전원 어댑터 연결", for: lang) : L10n.tr("On Battery", "배터리 전원 사용", for: lang))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if battery.isCharging {
+                    Text(L10n.tr("Charging", "충전 중", for: lang))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.green)
+                }
+            }
+            .padding(.top, 2)
+            
+            Text(battery.condition)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.8))
+                .lineLimit(1)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isOpaque ? Color.white.opacity(0.06) : Color.black.opacity(0.18))
+        )
+    }
+}
+
+// MARK: - Compact Ring (Compact)
 struct CompactRing: View {
     let title: String
     let percentage: Double
@@ -323,7 +762,37 @@ struct CompactRing: View {
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
             }
-            .frame(width: 42, height: 42)
+            .frame(width: 40, height: 40)
+            
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - Compact Speed Ring
+struct CompactSpeedRing: View {
+    let title: String
+    let speedString: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .stroke(color.opacity(0.2), lineWidth: 4)
+                
+                Circle()
+                    .stroke(color, lineWidth: 4)
+                
+                Text(speedString.replacingOccurrences(of: "/s", with: ""))
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(width: 40, height: 40)
             
             Text(title)
                 .font(.system(size: 9, weight: .semibold))

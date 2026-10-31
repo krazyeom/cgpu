@@ -9,12 +9,15 @@ mkdir -p /tmp/clang-cache
 
 swiftc -parse-as-library \
     -module-cache-path /tmp/clang-cache \
+    Sources/CGPUMonitor/Localization.swift \
     Sources/CGPUMonitor/SystemMetrics.swift \
+    Sources/CGPUMonitor/DetailPopovers.swift \
     Sources/CGPUMonitor/WidgetView.swift \
     Sources/CGPUMonitor/main.swift \
     -framework AppKit \
     -framework SwiftUI \
     -framework IOKit \
+    -framework ServiceManagement \
     -O \
     -o CGPUMonitor
 

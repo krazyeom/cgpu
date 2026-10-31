@@ -13,7 +13,8 @@ let package = Package(
         .executableTarget(
             name: "CGPUMonitor",
             linkerSettings: [
-                .linkedFramework("IOKit")
+                .linkedFramework("IOKit"),
+                .linkedFramework("ServiceManagement")
             ]
         )
     ]

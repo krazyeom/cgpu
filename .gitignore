@@ -1,8 +1,38 @@
-.DS_Store
-/.build
-/Packages
+# Compiled Binaries & App Executables
+/CGPUMonitor
+/CGPUMonitor.app/Contents/MacOS/CGPUMonitor
+*.o
+*.dSYM/
+
+# Build artifacts & package caches
+/.build/
+/Packages/
 xcuserdata/
 DerivedData/
-.swiftpm/configuration/registries.json
-.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/
+.clang-cache/
+
+# Sensitive Information, Credentials & Keys
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.p12
+*.cer
+*.p8
+id_rsa*
+id_ed25519*
+*.secret
+*.token
+*.keystore
+*.mobileprovision
 .netrc
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
