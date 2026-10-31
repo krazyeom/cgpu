@@ -283,6 +283,24 @@ cgpu/
      - 좌측 아이콘($x=170$)과 우측 아이콘($x=490$)은 창 중앙($x=330$)을 기준으로 완벽한 좌우 대칭($\Delta x = 160$pt)을 이룸.
      - 네온 화살표는 $x=265$에서 $x=395$, $y=230$으로 플레이트 사이를 자연스럽게 이어주도록 픽셀 단위로 동기화.
 
+### 4.16. 마운트 시 커스텀 볼륨 아이콘(.VolumeIcon.icns) 보존 및 Finder 리셋 방지 기술
+* **마운트 시 흰색 기본 디스크 아이콘 노출 원인 분석**:
+  - DMG 인스톨러를 마운트했을 때 바탕화면(Desktop)이나 Finder 사이드바에 앱 고유의 아이콘 대신 흰색 기본 외장 드라이브 아이콘이 뜨는 현상 분석.
+  - 실험적 검증 결과 두 가지 핵심 원인 확인:
+    1. `hdiutil create -srcfolder`는 스테이징 디렉터리의 점(`.`)으로 시작하는 숨김 파일(`.VolumeIcon.icns`)을 생성 과정에서 자동 필터링/누락시킴.
+    2. Finder AppleScript(`update without registering applications` 및 `close`)가 윈도우 뷰 설정을 `.DS_Store`에 기록할 때, 볼륨 루트의 속성을 재작성하면서 기존에 설정된 커스텀 아이콘 속성 비트(`kHasCustomIconBit`, `SetFile -a C`)를 소문자 `c`(`avbstclinmedz`)로 강제 리셋하고 `.VolumeIcon.icns`를 삭제해버림.
+* **해결 기술 (Post-AppleScript Volume Flag Injection)**:
+  - Finder 창 설정과 닫기가 완전히 끝난 직후 볼륨 아이콘을 주입하도록 파이프라인 순서 재정립:
+    ```bash
+    # Finder 창 종료 후 볼륨 아이콘 주입
+    cp AppIcon.icns "$MOUNT_DIR/.VolumeIcon.icns"
+    SetFile -a C "$MOUNT_DIR"
+    SetFile -a V "$MOUNT_DIR/.VolumeIcon.icns"
+    sync
+    ```
+  - `GetFileInfo`로 검증한 결과 `attributes: avbstClinmedz` (대문자 `C`) 및 `.VolumeIcon.icns`가 최종 압축 DMG(`UDZO`)까지 완벽하게 보존됨을 확인.
+  - 이 최적화는 자매 프로젝트인 `aWord`(`create_dmg.sh`)에도 즉각 적용되어 마운트 시 커스텀 아이콘 표출 정상화.
+
 ---
 
 ## 5. 저장소 위생 및 오픈소스 배포 관리 (Git & Security)
@@ -344,7 +362,7 @@ touch CGPUMonitor.app
 3. AppleScript(`osascript`)를 실행하여 Finder 창의 툴바/상태바를 숨기고 윈도우 크기를 660x440 (`bounds: {200, 140, 860, 580}`)으로 고정한 뒤, 배경화면을 `background.tiff`로 지정.
 4. 아이콘 크기(120pt) 및 `CGPUMonitor.app`과 `/Applications` 심볼릭 링크 좌표를 각각 `{170, 210}`, `{490, 210}`에 정확히 배치하여 배경의 드롭 타깃 플레이트 및 중앙 네온 화살표와 1픽셀 오차 없이 일치시킴.
 5. `update without registering applications`와 `delay 2`로 Finder `.DS_Store` 레이아웃 상태를 디스크에 강제 플러시 후 창 닫기.
-6. `SetFile -a C`를 통해 DMG 볼륨 자체에도 정규 `AppIcon.icns` 볼륨 아이콘 부여.
+6. 창이 완전히 닫힌 후, 마운트된 볼륨 루트(`$MOUNT_DIR/.VolumeIcon.icns`)에 `AppIcon.icns`를 복사하고 `SetFile -a C "$MOUNT_DIR"` 및 `SetFile -a V`를 실행하여 Finder의 속성 리셋 간섭 없이 볼륨 커스텀 아이콘 속성 영구 보존 (`sync` 수행).
 7. 최종 `hdiutil convert -format UDZO -imagekey zlib-level=9`로 고압축 배포 파일(`CGPUMonitor-v1.1.0.dmg`) 생성.
 
 ### 6.3. `Info.plist` 필수 키

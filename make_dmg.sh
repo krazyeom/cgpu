@@ -95,10 +95,16 @@ tell application "Finder"
 end tell
 EOF
 
-# 볼륨 아이콘 활성화
-if [ -f "$MOUNT_DIR/.VolumeIcon.icns" ] && [ -x /usr/bin/SetFile ]; then
-    SetFile -a C "$MOUNT_DIR" || true
+# 볼륨 아이콘 활성화 (Finder AppleScript 처리 후 적용해야 초기화되지 않음)
+echo "🎨 Applying custom VolumeIcon to mounted DMG volume..."
+if [ -f AppIcon.icns ]; then
+    cp AppIcon.icns "$MOUNT_DIR/.VolumeIcon.icns"
+    if command -v SetFile >/dev/null 2>&1; then
+        SetFile -a C "$MOUNT_DIR"
+        SetFile -a V "$MOUNT_DIR/.VolumeIcon.icns" 2>/dev/null || true
+    fi
 fi
+sync
 
 sleep 1
 echo "⏏️ Detaching volume..."

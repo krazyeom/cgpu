@@ -393,6 +393,37 @@ end tell
 
 다시 빌드하고 DMG를 열어보니, 마침내 감탄이 나오는 깔끔한 인스톨러 창이 떴다. 120pt 크기의 앱 아이콘이 좌측 글래스 플레이트 한가운데에 쏙 들어가 있고, 우측 Applications 타깃으로 매끄러운 그라데이션 화살표가 한 치의 어긋남 없이 연결되었다.
 
+### 마운트했을 때 볼륨 아이콘이 왜 흰색 디스크로 뜨지? (Finder의 속성 리셋 버그)
+인스톨러 창은 완벽해졌는데, DMG를 마운트했을 때 바탕화면과 Finder 사이드바에 뜬 드라이브 아이콘을 보고 멈칫했다. 앱 아이콘이 아니라 밋밋한 기본 흰색 외장 디스크가 덩그러니 앉아 있었다. 자매 프로젝트로 만들고 있던 `aWord`도 똑같은 증상이었다.
+
+스크립트 안에서는 분명 `SetFile -a C`도 쳤고 `.VolumeIcon.icns`도 복사하도록 짜여 있었는데 왜 안 먹힐까? 터미널에서 `GetFileInfo`로 마운트된 디스크의 내부 플래그를 찍어보았다:
+```bash
+GetFileInfo "/Volumes/CGPU Monitor"
+# attributes: avbstclinmedz (소문자 c = 커스텀 아이콘 속성 꺼짐!)
+ls -la "/Volumes/CGPU Monitor/.VolumeIcon.icns"
+# No such file or directory (파일 어디 갔어?!)
+```
+
+도대체 누가 `.VolumeIcon.icns`를 지우고 속성을 껐을까? 한 줄씩 추적하며 범인을 잡았다. 범인은 다름 아닌 **Finder의 AppleScript 창 저장 로직**이었다.
+AppleScript가 창 크기와 위치를 정하고 `update without registering applications`로 `.DS_Store`를 기록한 뒤 창을 닫는(`close`) 순간, Finder가 볼륨 루트 디렉터리의 속성을 통째로 다시 직렬화하면서 이전에 설정해 둔 `kHasCustomIconBit`(대문자 `C`)를 소문자 `c`로 강제 초기화하고 정체 모를 숨김 파일로 분류된 `.VolumeIcon.icns`를 밀어버린 것이었다.
+
+해결책은 순서를 뒤집는 것이었다:
+**Finder 창 설정과 `close`가 완전히 끝난 직후**, 볼륨 루트에 아이콘을 집어넣고 속성을 박는 것이다.
+
+```bash
+# Finder가 창을 닫고 디스크를 떠난 뒤에 볼륨 아이콘 주입
+echo "🎨 Applying custom VolumeIcon to mounted DMG volume..."
+if [ -f AppIcon.icns ]; then
+    cp AppIcon.icns "$MOUNT_DIR/.VolumeIcon.icns"
+    SetFile -a C "$MOUNT_DIR"
+    SetFile -a V "$MOUNT_DIR/.VolumeIcon.icns"
+fi
+sync
+```
+
+이렇게 순서를 바꾸자 `GetFileInfo` 결과에 드디어 대문자 `C`(`avbstClinmedz`)가 선명하게 살아남았다.
+이 로직을 `cgpu`는 물론이고 자매 프로젝트인 `aWord`의 `create_dmg.sh`에도 똑같이 적용해 다시 빌드했다. 이제 DMG를 더블클릭해 마운트하는 순간, 바탕화면과 Finder 사이드바 "위치" 목록에 각각 `CGPU Monitor`와 `aWord`의 영롱한 고유 칩셋/타이포 아이콘이 완벽하게 떠오른다.
+
 ---
 
 ## 12. 530pt로 깎아낸 미니멀 바와 저작권(Copyright)의 정석
