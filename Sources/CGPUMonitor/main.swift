@@ -223,6 +223,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onConfigChange: { [weak self] newConfig in
                 self?.updateConfig(newConfig)
             },
+            onOpenAbout: { [weak self] in
+                self?.showAboutPanel()
+            },
             onClose: { [weak panel] in
                 panel?.orderOut(nil)
             }
@@ -250,14 +253,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let width = max(280, CGFloat(80 + cfg.enabledCount * 55))
             return NSSize(width: width, height: 125)
         case .minimal:
-            var width: CGFloat = 160
-            if cfg.showCPU { width += 75 }
-            if cfg.showGPU { width += 75 }
-            if cfg.showRAM { width += 75 }
-            if cfg.showDisk { width += 75 }
-            if cfg.showNetwork { width += 94 }
-            if cfg.showBattery { width += 73 }
-            return NSSize(width: max(320, width), height: 28)
+            var width: CGFloat = 136
+            if cfg.showCPU { width += 63 }
+            if cfg.showGPU { width += 63 }
+            if cfg.showRAM { width += 66 }
+            if cfg.showDisk { width += 63 }
+            if cfg.showNetwork { width += 78 }
+            if cfg.showBattery { width += 61 }
+            return NSSize(width: max(280, width), height: 28)
         }
     }
     

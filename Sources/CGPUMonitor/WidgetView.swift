@@ -46,6 +46,7 @@ public struct WidgetView: View {
     var onToggleDesktop: ((Bool) -> Void)?
     var onLanguageChange: ((AppLanguage) -> Void)?
     var onConfigChange: ((MetricConfig) -> Void)?
+    var onOpenAbout: (() -> Void)?
     var onClose: (() -> Void)?
     
     public init(
@@ -60,6 +61,7 @@ public struct WidgetView: View {
         onToggleDesktop: ((Bool) -> Void)? = nil,
         onLanguageChange: ((AppLanguage) -> Void)? = nil,
         onConfigChange: ((MetricConfig) -> Void)? = nil,
+        onOpenAbout: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.monitor = monitor
@@ -73,6 +75,7 @@ public struct WidgetView: View {
         self.onToggleDesktop = onToggleDesktop
         self.onLanguageChange = onLanguageChange
         self.onConfigChange = onConfigChange
+        self.onOpenAbout = onOpenAbout
         self.onClose = onClose
     }
     
@@ -303,24 +306,28 @@ public struct WidgetView: View {
         return max(280, CGFloat(80 + config.enabledCount * 55))
     }
     
-    // MARK: - 3. Minimal View (완전 한줄 가변 항목 & 최적화된 너비)
+    // MARK: - 3. Minimal View (완전 한줄 가변 항목 & 정밀 최적화된 너비)
     private var minimalView: some View {
-        HStack(spacing: 5) {
-            // 미니 타이틀/아이콘
-            HStack(spacing: 2.5) {
-                Image(systemName: "cpu.fill")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
-                Text("CGPU")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+        HStack(spacing: 3.5) {
+            // 미니 타이틀/아이콘 (클릭 시 About 창 오픈 & 저작권 툴팁)
+            Button(action: { onOpenAbout?() }) {
+                HStack(spacing: 2) {
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+                    Text("CGPU")
+                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
+            .buttonStyle(.plain)
+            .help("CGPU Monitor \(AppVersion.displayString) · © 2026 krazyeom")
             .padding(.trailing, 1)
             
             // CPU, GPU, RAM, SSD, NET, BAT (설정에 따라 표시)
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 if config.showCPU {
                     MinimalMetricTag(label: "CPU", valueString: String(format: "%2.0f%%", monitor.cpu.total), color: .cyan, isOpaque: isOpaque)
                         .onHover { h in setHover(.cpu, h) }
@@ -370,10 +377,10 @@ public struct WidgetView: View {
                 }
             }
             
-            Spacer(minLength: 5)
+            Spacer(minLength: 4)
             
             // 컨트롤 버튼
-            HStack(spacing: 3.5) {
+            HStack(spacing: 2.5) {
                 // Config (Gear) Popover Button
                 Button(action: { isShowingConfigPopover.toggle() }) {
                     Image(systemName: "gearshape")
@@ -388,9 +395,9 @@ public struct WidgetView: View {
                 
                 Button(action: toggleLanguage) {
                     Text(language == .en ? "KO" : "EN")
-                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
-                        .padding(.horizontal, 3.5)
+                        .padding(.horizontal, 3)
                         .padding(.vertical, 1.5)
                         .background(
                             RoundedRectangle(cornerRadius: 3.5, style: .continuous)
@@ -429,26 +436,26 @@ public struct WidgetView: View {
                 
                 Button(action: { onClose?() }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9.5))
                         .foregroundColor(.secondary.opacity(0.8))
                 }
                 .buttonStyle(.plain)
                 .help(L10n.tr("Close Widget", "위젯 닫기", for: language))
             }
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 6)
         .frame(width: minimalWidth, height: 28)
     }
     
     private var minimalWidth: CGFloat {
-        var width: CGFloat = 160 // 최적화된 컴팩트 베이스 (타이틀 38 + 버튼들 86 + 여백 36)
-        if config.showCPU { width += 75 }
-        if config.showGPU { width += 75 }
-        if config.showRAM { width += 75 }
-        if config.showDisk { width += 75 }
-        if config.showNetwork { width += 94 }
-        if config.showBattery { width += 73 }
-        return max(320, width)
+        var width: CGFloat = 136 // 정밀 컴팩트 베이스 (타이틀 36 + 버튼들 78 + 패딩 12 + 여백 10)
+        if config.showCPU { width += 63 }
+        if config.showGPU { width += 63 }
+        if config.showRAM { width += 66 }
+        if config.showDisk { width += 63 }
+        if config.showNetwork { width += 78 }
+        if config.showBattery { width += 61 }
+        return max(280, width)
     }
     
     // MARK: - Helper Methods
@@ -480,13 +487,19 @@ public struct WidgetView: View {
     // MARK: - Header Bar (Standard & Compact 공용)
     private func headerBar(title: String) -> some View {
         HStack {
-            Image(systemName: "cpu.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
-            
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
+            Button(action: { onOpenAbout?() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+                    
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("CGPU Monitor \(AppVersion.displayString) · © 2026 krazyeom")
             
             Spacer()
             
@@ -569,27 +582,27 @@ struct MinimalMetricTag: View {
     var isOpaque: Bool = true
     
     var body: some View {
-        HStack(spacing: 2.5) {
+        HStack(spacing: 2) {
             Circle()
                 .fill(color)
-                .frame(width: 4.5, height: 4.5)
+                .frame(width: 4, height: 4)
             
             Text(label)
-                .font(.system(size: 9.5, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundColor(color)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             
             Text(valueString)
-                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 4.5)
+        .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .background(
-            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(isOpaque ? Color.white.opacity(0.08) : Color.white.opacity(0.10))
         )
     }
